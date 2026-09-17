@@ -69,9 +69,7 @@ function BookVault:loadSettings()
     for _,status in ipairs(STATUS) do
         if visible[status.key] then count=count+1 end
     end
-    if count == 0 then
-        visible.all=true
-    end
+    if count == 0 then visible.all=true end
 end
 function BookVault:saveSettings()
     self:loadSettings()
@@ -189,44 +187,120 @@ function BookVault:getCollections()
     for name, coll in pairs(ReadCollection.coll) do
         if type(name) == "string" and type(coll) == "table" then
             local settings = ReadCollection.coll_settings and ReadCollection.coll_settings[name] or {}
-            collections[#collections + 1] = {
-                name = name,
-                order = tonumber(settings.order) or 999999,
-                count = 0,
-            }
-            for file in pairs(coll) do
-                if file then collections[#collections].count = collections[#collections].count + 1 end
-            end
+            collections[#collections + 1] = { name=name, order=tonumber(settings.order) or 999999, count=0 }
+            for file in pairs(coll) do if file then collections[#collections].count=collections[#collections].count+1 end end
         end
     end
-    table.sort(collections, function(a,b)
-        if a.order == b.order then return a.name:lower() < b.name:lower() end
-        return a.order < b.order
-    end)
+    table.sort(collections,function(a,b) if a.order==b.order then return a.name:lower()<b.name:lower() end return a.order<b.order end)
     return collections
 end
 function BookVault:isCollectionVisible(name)
-    self:loadSettings()
-    local visible = self.settings.data.visible_collections[name]
+    self:loadSettings(); local visible=self.settings.data.visible_collections[name]
     return visible ~= false
 end
-function BookVault:collectionItems(collection_name, include_private)
-    local root=self:getRoot()
-    if not root then return {} end
-    local ok, ReadCollection = pcall(require, "readcollection")
-    if not ok or not ReadCollection or type(ReadCollection.coll) ~= "table" then return {} end
-    local coll=ReadCollection.coll[collection_name]
-    if type(coll) ~= "table" then return {} end
+function BookVault:collectionItems(collection_name,include_private)
+    local root=self:getRoot(); if not root then return {} end
+    local ok,ReadCollection=pcall(require,"readcollection")
+    if not ok or not ReadCollection or type(ReadCollection.coll)~="table" then return {} end
+    local coll=ReadCollection.coll[collection_name]; if type(coll)~="table" then return {} end
     local items={}
-    for file, item in pairs(coll) do
+    for file,item in pairs(coll) do
         local path=normalize(file)
         if path and contains(root,path) and (include_private or not self:isPrivate(path)) and lfs.attributes(path,"mode")=="file" then
-            items[#items+1]={path=path,filepath=path,text=item.text or path:match("[^/]+$"),attr=item.attr,is_file=true}
+            local attr=lfs.attributes(path)
+            items[#items+1]={path=path,filepath=path,text=item.text or path:match("[^/]+$"),attr=attr,is_file=true}
         end
     end
-    table.sort(items,function(a,b) return a.text:lower()<b.text:lower() end)
-    return items
+    table.sort(items,function(a,b) return a.text:lower()<b.text:lower() end); return items
 end
+
+-- Visual layer is deliberately lazy: the coverbrowser modules are loaded only after
+-- BookVault has already registered successfully. If a KOReader build does not expose
+-- them, BookVault simply falls back to its stable native list view.
+function BookVault:prepareVisualMenu(menu,source_items)
+    menu._bookvault_source_items=source_items
+    menu.title_bar_left_icon="search"
+    menu.onLeftButtonTap=function(instance)
+        local dialog
+        dialog=InputDialog:new{
+            title=_("Buscar na biblioteca"), input="", input_type="text",
+            buttons={{
+                {text=_("Cancelar"),callback=function() UIManager:close(dialog) end},
+                {text=_("Buscar"),is_enter_default=true,callback=function()
+                    local query=(dialog:getInputText() or ""):lower():gsub("^%s+"," "):gsub("%s+$","")
+                    UIManager:close(dialog)
+                    if query=="" then
+                        instance.item_table=instance._bookvault_source_items
+                    else
+                        local filtered={}
+                        for _,item in ipairs(instance._bookvault_source_items) do
+                            if (item.text or ""):lower():find(query,1,true) then filtered[#filtered+1]=item end
+                        end
+                        instance.item_table=filtered
+                    end
+                    instance.page=1
+                    instance:updateItems()
+                end},
+            }},
+        }
+        UIManager:show(dialog); dialog:onShowKeyboard()
+    end
+    menu.onLeftButtonHold=function(instance)
+        local buttons={
+            {{text=_("Título"),callback=function() instance:sortBookVaultItems("title") end}},
+            {{text=_("Mais recentes"),callback=function() instance:sortBookVaultItems("recent") end}},
+            {{text=_("Modificados recentemente"),callback=function() instance:sortBookVaultItems("modified") end}},
+            {{text=_("Tamanho"),callback=function() instance:sortBookVaultItems("size") end}},
+            {{text=_("Cancelar"),callback=function() UIManager:close(instance._bookvault_sort_dialog) end}},
+        }
+        instance._bookvault_sort_dialog=ButtonDialog:new{title=_("Ordenar livros"),title_align="center",buttons=buttons}
+        UIManager:show(instance._bookvault_sort_dialog)
+    end
+
+    local ok_cover, CoverBrowser=pcall(require,"coverbrowser")
+    local ok_menu, CoverMenu=pcall(require,"covermenu")
+    local ok_mosaic, MosaicMenu=pcall(require,"mosaicmenu")
+    if not (ok_cover and ok_menu and ok_mosaic and CoverBrowser and CoverMenu and MosaicMenu) then
+        logger.warn("BookVault: cover mosaic unavailable; using native BookList")
+        return false
+    end
+
+    local ok_grid,grid_err=pcall(CoverBrowser.initGrid,menu,"mosaic_image")
+    if not ok_grid then
+        logger.warn("BookVault: could not initialize mosaic:",grid_err)
+        return false
+    end
+
+    menu.updateItems=CoverMenu.updateItems
+    menu.onCloseWidget=CoverMenu.onCloseWidget
+    menu._recalculateDimen=MosaicMenu._recalculateDimen
+    menu._updateItemsBuildUI=MosaicMenu._updateItemsBuildUI
+    menu._do_cover_images=true
+    menu._do_center_partial_rows=true
+    return true
+end
+function BookVault:sortBookVaultItems(mode)
+    local menu=self._active_visual_menu
+    if not menu then return end
+    local items=menu._bookvault_source_items or menu.item_table or {}
+    local sorted={}
+    for i,item in ipairs(items) do sorted[i]=item end
+    if mode=="recent" then
+        table.sort(sorted,function(a,b) return (a.attr and a.attr.access or 0)>(b.attr and b.attr.access or 0) end)
+    elseif mode=="modified" then
+        table.sort(sorted,function(a,b) return (a.attr and a.attr.modification or 0)>(b.attr and b.attr.modification or 0) end)
+    elseif mode=="size" then
+        table.sort(sorted,function(a,b) return (a.attr and a.attr.size or 0)>(b.attr and b.attr.size or 0) end)
+    else
+        table.sort(sorted,function(a,b) return (a.text or ""):lower()<(b.text or ""):lower() end)
+    end
+    menu._bookvault_source_items=sorted
+    menu.item_table=sorted
+    menu.page=1
+    if menu._bookvault_sort_dialog then UIManager:close(menu._bookvault_sort_dialog); menu._bookvault_sort_dialog=nil end
+    menu:updateItems()
+end
+
 function BookVault:showCollection(collection_name)
     safe(function()
         local items=self:collectionItems(collection_name,self.unlocked)
@@ -240,42 +314,31 @@ function BookVault:showCollection(collection_name)
                 ReaderUI:showReader(item.path)
             end) end,
         }
+        self._active_visual_menu=menu
+        self:prepareVisualMenu(menu,items)
         UIManager:show(menu); menu:updateItems()
     end)
 end
 function BookVault:showCollectionChooser()
-    local collections=self:getCollections()
-    local buttons={}
+    local collections=self:getCollections(); local buttons={}
     for _,collection in ipairs(collections) do
         if self:isCollectionVisible(collection.name) then
-            buttons[#buttons+1]={{text=collection.name,callback=function()
-                UIManager:close(self.collection_dialog); self:showCollection(collection.name)
-            end}}
+            buttons[#buttons+1]={{text=collection.name,callback=function() UIManager:close(self.collection_dialog); self:showCollection(collection.name) end}}
         end
     end
-    if #buttons == 0 then
-        UIManager:show(InfoMessage:new{text=_("Nenhuma coleção está configurada para aparecer no BookVault.")})
-        return
-    end
+    if #buttons==0 then UIManager:show(InfoMessage:new{text=_("Nenhuma coleção está configurada para aparecer no BookVault.")}); return end
     buttons[#buttons+1]={{text=_("Voltar"),callback=function() UIManager:close(self.collection_dialog) end}}
     self.collection_dialog=ButtonDialog:new{title=_("Coleções"),title_align="center",buttons=buttons}; UIManager:show(self.collection_dialog)
 end
 function BookVault:showCollectionVisibilityChooser()
-    self:loadSettings()
-    local collections=self:getCollections()
-    if #collections == 0 then
-        UIManager:show(InfoMessage:new{text=_("Nenhuma coleção do KOReader foi encontrada.")})
-        return
-    end
+    self:loadSettings(); local collections=self:getCollections()
+    if #collections==0 then UIManager:show(InfoMessage:new{text=_("Nenhuma coleção do KOReader foi encontrada.")}); return end
     local function rebuild()
         local buttons={}
         for _,collection in ipairs(collections) do
             local checked=self:isCollectionVisible(collection.name)
             buttons[#buttons+1]={{text=(checked and "☑ " or "☐ ")..collection.name,callback=function()
-                self.settings.data.visible_collections[collection.name]=not checked
-                self:saveSettings()
-                UIManager:close(self.collection_visibility_dialog)
-                rebuild()
+                self.settings.data.visible_collections[collection.name]=not checked; self:saveSettings(); UIManager:close(self.collection_visibility_dialog); rebuild()
             end}}
         end
         buttons[#buttons+1]={{text=_("Concluído"),callback=function() UIManager:close(self.collection_visibility_dialog) end}}
@@ -287,7 +350,9 @@ end
 function BookVault:showLibrary(status,include_private)
     safe(function()
         local items={}
-        for _,item in ipairs(self:scanBooks(include_private)) do if status=="all" or BookList.getBookStatus(item.path)==status then items[#items+1]=item end end
+        for _,item in ipairs(self:scanBooks(include_private)) do
+            if status=="all" or BookList.getBookStatus(item.path)==status then items[#items+1]=item end
+        end
         local menu=BookList:new{
             name="bookvault_library",title=_("BookVault").." · "..self:getStatusLabel(status),item_table=items,covers_fullscreen=true,
             onMenuSelect=function(_,item) self:guard(item.path,function()
@@ -295,55 +360,38 @@ function BookVault:showLibrary(status,include_private)
                 ReaderUI:showReader(item.path)
             end) end,
         }
+        self._active_visual_menu=menu
+        self:prepareVisualMenu(menu,items)
         UIManager:show(menu); menu:updateItems()
     end)
 end
 function BookVault:showStatusChooser()
-    self:loadSettings()
-    local buttons={}
+    self:loadSettings(); local buttons={}
     for _,status in ipairs(STATUS) do
         if self:isStatusVisible(status.key) then
-            buttons[#buttons+1]={{text=status.label,callback=function()
-                UIManager:close(self.status_dialog); self:showLibrary(status.key,self.unlocked)
-            end}}
+            buttons[#buttons+1]={{text=status.label,callback=function() UIManager:close(self.status_dialog); self:showLibrary(status.key,self.unlocked) end}}
         end
     end
-    local collections=self:getCollections()
-    for _,collection in ipairs(collections) do
+    for _,collection in ipairs(self:getCollections()) do
         if self:isCollectionVisible(collection.name) then
-            buttons[#buttons+1]={{text="▸ "..collection.name,callback=function()
-                UIManager:close(self.status_dialog); self:showCollection(collection.name)
-            end}}
+            buttons[#buttons+1]={{text="▸ "..collection.name,callback=function() UIManager:close(self.status_dialog); self:showCollection(collection.name) end}}
         end
     end
-    if #buttons == 0 then
-        self.settings.data.visible_statuses.all=true
-        self:saveSettings()
+    if #buttons==0 then
+        self.settings.data.visible_statuses.all=true; self:saveSettings()
         buttons={{{text=STATUS[1].label,callback=function() UIManager:close(self.status_dialog); self:showLibrary("all",self.unlocked) end}}}
     end
     self.status_dialog=ButtonDialog:new{title=_("BookVault"),title_align="center",buttons=buttons}; UIManager:show(self.status_dialog)
 end
 function BookVault:showStatusVisibilityChooser()
     self:loadSettings()
-    local buttons={}
     local function rebuild()
-        local visible=self.settings.data.visible_statuses
-        buttons={}
+        local buttons={}; local visible=self.settings.data.visible_statuses
         for _,status in ipairs(STATUS) do
-            local checked=visible[status.key] == true
+            local checked=visible[status.key]==true
             buttons[#buttons+1]={{text=(checked and "☑ " or "☐ ")..status.label,callback=function()
-                if visible[status.key] and (function()
-                    local count=0
-                    for _,item in ipairs(STATUS) do if visible[item.key] then count=count+1 end end
-                    return count <= 1
-                end)() then
-                    UIManager:show(InfoMessage:new{text=_("Mantenha pelo menos uma categoria visível.")})
-                    return
-                end
-                visible[status.key]=not visible[status.key]
-                self:saveSettings()
-                UIManager:close(self.status_visibility_dialog)
-                rebuild()
+                if visible[status.key] and (function() local count=0; for _,item in ipairs(STATUS) do if visible[item.key] then count=count+1 end end; return count<=1 end)() then UIManager:show(InfoMessage:new{text=_("Mantenha pelo menos uma categoria visível.")}); return end
+                visible[status.key]=not visible[status.key]; self:saveSettings(); UIManager:close(self.status_visibility_dialog); rebuild()
             end}}
         end
         buttons[#buttons+1]={{text=_("Concluído"),callback=function() UIManager:close(self.status_visibility_dialog) end}}
