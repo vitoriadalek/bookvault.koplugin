@@ -226,7 +226,7 @@ end
 function BookVault:makeTitleBar(title,subtitle,search_callback,sort_callback,close_callback)
     local title_bar=TitleBar:new{
         width=Screen:getWidth(),fullscreen=true,align="center",title=title,subtitle=subtitle,subtitle_fullwidth=true,title_shrink_font_to_fit=true,
-        title_top_padding=Screen:scaleBySize(6),button_padding=Screen:scaleBySize(5),left_icon="search",
+        title_top_padding=Screen:scaleBySize(6),button_padding=Screen:scaleBySize(5),left_icon="appbar.search",
         left_icon_tap_callback=search_callback,left_icon_hold_callback=sort_callback,close_callback=close_callback,
         with_bottom_line=true,bottom_line_h_padding=Screen:scaleBySize(18),
     }
