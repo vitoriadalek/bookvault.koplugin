@@ -1,4 +1,4 @@
-# BookVault 2.4.0
+# BookVault 2.4.1
 
 Biblioteca visual para KOReader, feita para organizar uma biblioteca pessoal em um mosaico de capas reais sem substituir globalmente o FileManager, FileChooser, ReaderUI ou CoverBrowser.
 
@@ -18,6 +18,12 @@ Biblioteca visual para KOReader, feita para organizar uma biblioteca pessoal em 
 - Pastas protegidas e conteúdo privado.
 - Conteúdo privado ocultado nas visualizações do BookVault até desbloqueio.
 
+## 2.4.1 — endurecimento da instalação
+
+- Ícones personalizados preparados antes dos widgets de interface, cobrindo instalações novas.
+- Mosaico, pesquisa, ordenação, ordem personalizada, grade, coleções, progresso, senha e privacidade preservados.
+- Nenhum monkey patch global adicionado.
+
 ## Estabilidade
 
 A integração visual é carregada de forma lazy e cada visualização recebe os métodos do CoverMenu/MosaicMenu apenas na própria instância. O plugin não instala monkey patches globais no FileChooser, FileManager, ReaderUI ou CoverBrowser.
@@ -32,7 +38,7 @@ A proteção do BookVault controla o acesso pelas interfaces do plugin. Ela não
 
 ## Compatibilidade
 
-A versão 2.4.0 acompanha as APIs atuais do KOReader usadas por `Menu`, `TitleBar`, `BookList`, `CoverMenu`, `MosaicMenu` e `BookInfoManager`. Como componentes internos do KOReader podem mudar entre versões, o teste final deve ser feito no dispositivo com a mesma versão do KOReader usada pelo usuário.
+A versão 2.4.1 acompanha as APIs atuais do KOReader usadas por `Menu`, `TitleBar`, `BookList`, `CoverMenu`, `MosaicMenu` e `BookInfoManager`. Como componentes internos do KOReader podem mudar entre versões, o teste final deve ser feito no dispositivo com a mesma versão do KOReader usada pelo usuário.
 
 ## AppStore
 

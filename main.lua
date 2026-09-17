@@ -1,3 +1,4 @@
+require("bookvault_icons_bootstrap")
 local ButtonDialog = require("ui/widget/buttondialog")
 local DataStorage = require("datastorage")
 local DoubleSpinWidget = require("ui/widget/doublespinwidget")
