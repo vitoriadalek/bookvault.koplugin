@@ -1,6 +1,5 @@
 local ButtonDialog = require("ui/widget/buttondialog")
 local DataStorage = require("datastorage")
-local Dispatcher = require("dispatcher")
 local InfoMessage = require("ui/widget/infomessage")
 local InputDialog = require("ui/widget/inputdialog")
 local LuaSettings = require("luasettings")
@@ -552,24 +551,11 @@ function BookVault:addToMainMenu(menu_items)
     }
 end
 
-function BookVault:onDispatcherRegisterActions()
-    Dispatcher:registerAction(self.name, {
-        category = "none",
-        event = "BookVaultOpen",
-        title = self.fullname,
-        general = true,
-    })
-end
-
-function BookVault:OpenBookVault()
+-- QuickUI recognizes a plugin directly when it exposes a conventional
+-- launch method such as show(). Keep BookVault as a plugin action instead
+-- of registering it as a Dispatcher system action.
+function BookVault:show()
     self:showStatusChooser()
-end
-
-function BookVault:onEvent(event)
-    if event and event.name == "BookVaultOpen" then
-        self:showStatusChooser()
-        return true
-    end
 end
 
 function BookVault:onSuspend()
@@ -581,7 +567,6 @@ function BookVault:onResume()
 end
 
 function BookVault:init()
-    self:onDispatcherRegisterActions()
     self:loadSettings()
     self.ui.menu:registerToMainMenu(self)
     UIManager:nextTick(function() self:patchSecurity() end)
