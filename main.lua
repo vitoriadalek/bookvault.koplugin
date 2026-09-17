@@ -58,9 +58,7 @@ function BookVault:loadSettings()
     end
     self.settings.data.protected_paths=self.settings.data.protected_paths or {}
     self.settings.data.private_paths=self.settings.data.private_paths or {}
-    if type(self.settings.data.visible_statuses) ~= "table" then
-        self.settings.data.visible_statuses={all=true,reading=true,abandoned=true,complete=true,new=true}
-    end
+    if type(self.settings.data.visible_statuses) ~= "table" then self.settings.data.visible_statuses={all=true,reading=true,abandoned=true,complete=true,new=true} end
     if type(self.settings.data.visible_collections) ~= "table" then self.settings.data.visible_collections={} end
     local visible=self.settings.data.visible_statuses; local count=0
     for _,status in ipairs(STATUS) do if visible[status.key] then count=count+1 end end
@@ -204,7 +202,6 @@ function BookVault:sortBookVaultItems(menu,mode)
     if menu._bookvault_sort_dialog then UIManager:close(menu._bookvault_sort_dialog); menu._bookvault_sort_dialog=nil end
     menu:updateItems()
 end
-
 function BookVault:prepareVisualMenu(menu,source_items)
     menu._bookvault_source_items=source_items
     menu.sortBookVaultItems=function(instance,mode) self:sortBookVaultItems(instance,mode) end
@@ -233,18 +230,13 @@ function BookVault:prepareVisualMenu(menu,source_items)
         }
         instance._bookvault_sort_dialog=ButtonDialog:new{title=_("Ordenar livros"),title_align="center",buttons=buttons}; UIManager:show(instance._bookvault_sort_dialog)
     end
-
-    -- Create the cute BookVault cat icon in KOReader's writable user icon folder.
-    -- This happens only when a visual library is opened and is fully optional.
     local cat_ok=pcall(function()
         local icon_dir=DataStorage:getDataDir().."/icons"
         if lfs.attributes(icon_dir,"mode")~="directory" then lfs.mkdir(icon_dir) end
         local icon_path=icon_dir.."/bookvault-cat.svg"
         if lfs.attributes(icon_path,"mode")~="file" then
-            local file=io.open(icon_path,"w")
-            if not file then error("could not create BookVault cat icon") end
-            file:write('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><g fill="none" stroke="#000" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 27 13 13l14 7c3-1 7-1 10 0l14-7-5 14c3 3 5 7 5 12 0 9-9 15-22 15S7 48 7 39c0-5 2-9 5-12z" fill="#000"/><path d="M20 38h.1M44 38h.1" stroke="#fff" stroke-width="4"/><path d="M29 44c2 2 4 2 6 0M32 42v3" stroke="#fff"/><path d="M32 7v5M26 10h12M54 25h6M57 22v6"/></g></svg>')
-            file:close()
+            local file=io.open(icon_path,"w"); if not file then error("could not create BookVault cat icon") end
+            file:write('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><g fill="none" stroke="#000" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 27 13 13l14 7c3-1 7-1 10 0l14-7-5 14c3 3 5 7 5 12 0 9-9 15-22 15S7 48 7 39c0-5 2-9 5-12z" fill="#000"/><path d="M20 38h.1M44 38h.1" stroke="#fff" stroke-width="4"/><path d="M29 44c2 2 4 2 6 0M32 42v3" stroke="#fff"/><path d="M32 7v5M26 10h12M54 25h6M57 22v6"/></g></svg>'); file:close()
         end
     end)
     if menu.title_bar and menu.title_bar.setLeftIcon then menu.title_bar:setLeftIcon(cat_ok and "bookvault-cat" or "search") end
@@ -252,12 +244,10 @@ function BookVault:prepareVisualMenu(menu,source_items)
     local ok_cover,CoverBrowser=pcall(require,"coverbrowser")
     local ok_menu,CoverMenu=pcall(require,"covermenu")
     local ok_mosaic,MosaicMenu=pcall(require,"mosaicmenu")
-    if not (ok_cover and ok_menu and ok_mosaic and CoverBrowser and CoverMenu and MosaicMenu) then
-        logger.warn("BookVault: cover mosaic unavailable; using native BookList"); return false
-    end
+    if not (ok_cover and ok_menu and ok_mosaic and CoverBrowser and CoverMenu and MosaicMenu) then logger.warn("BookVault: cover mosaic unavailable; using native BookList"); return false end
     local ok_grid,grid_err=pcall(CoverBrowser.initGrid,menu,"mosaic_image")
     if not ok_grid then logger.warn("BookVault: could not initialize mosaic:",grid_err); return false end
-    menu.getBookInfo=CoverBrowser.getBookInfo
+    menu.getBookInfo=function(_,file) return CoverBrowser:getBookInfo(file) end
     menu.updateItems=CoverMenu.updateItems
     menu.onCloseWidget=CoverMenu.onCloseWidget
     menu._recalculateDimen=MosaicMenu._recalculateDimen
@@ -270,12 +260,10 @@ end
 function BookVault:showCollection(collection_name)
     safe(function()
         local items=self:collectionItems(collection_name,self.unlocked)
-        local menu=BookList:new{name="bookvault_collection_"..collection_name,title=_("BookVault").." · "..collection_name,item_table=items,covers_fullscreen=true,
-            onMenuSelect=function(_,item) self:guard(item.path,function()
-                if lfs.attributes(item.path,"mode")~="file" then UIManager:show(InfoMessage:new{text=_("O arquivo não existe mais.")}); return end
-                ReaderUI:showReader(item.path)
-            end) end,
-        }
+        local menu=BookList:new{name="bookvault_collection_"..collection_name,title=_("BookVault").." · "..collection_name,item_table=items,covers_fullscreen=true,onMenuSelect=function(_,item) self:guard(item.path,function()
+            if lfs.attributes(item.path,"mode")~="file" then UIManager:show(InfoMessage:new{text=_("O arquivo não existe mais.")}); return end
+            ReaderUI:showReader(item.path)
+        end) end}
         self._active_visual_menu=menu; self:prepareVisualMenu(menu,items); UIManager:show(menu); menu:updateItems()
     end)
 end
@@ -304,12 +292,10 @@ function BookVault:showLibrary(status,include_private)
     safe(function()
         local items={}
         for _,item in ipairs(self:scanBooks(include_private)) do if status=="all" or BookList.getBookStatus(item.path)==status then items[#items+1]=item end end
-        local menu=BookList:new{name="bookvault_library",title=_("BookVault").." · "..self:getStatusLabel(status),item_table=items,covers_fullscreen=true,
-            onMenuSelect=function(_,item) self:guard(item.path,function()
-                if lfs.attributes(item.path,"mode")~="file" then UIManager:show(InfoMessage:new{text=_("O arquivo não existe mais.")}); return end
-                ReaderUI:showReader(item.path)
-            end) end,
-        }
+        local menu=BookList:new{name="bookvault_library",title=_("BookVault").." · "..self:getStatusLabel(status),item_table=items,covers_fullscreen=true,onMenuSelect=function(_,item) self:guard(item.path,function()
+            if lfs.attributes(item.path,"mode")~="file" then UIManager:show(InfoMessage:new{text=_("O arquivo não existe mais.")}); return end
+            ReaderUI:showReader(item.path)
+        end) end}
         self._active_visual_menu=menu; self:prepareVisualMenu(menu,items); UIManager:show(menu); menu:updateItems()
     end)
 end
