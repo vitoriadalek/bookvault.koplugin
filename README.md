@@ -19,19 +19,17 @@ BookVault is a KOReader plugin that creates a virtual reading-status library wit
 
 ## Stability note
 
-Version 1.4.0 removes the previous global FileChooser/FileManager/ReaderUI hooks and the CoverBrowser method replacement. Those were fragile across KOReader versions and could cause crashes. BookVault now keeps its functionality inside the plugin and uses the documented standard reading/opening flow.
-
-The library uses the same book-status values exposed by KOReader's BookList API. citeturn0search0turn0search4
+Version 1.4.0 removes the previous global FileChooser/FileManager/ReaderUI hooks and the CoverBrowser method replacement. Those were fragile across KOReader versions and could cause crashes. BookVault now keeps its functionality inside the plugin and uses the standard reading/opening flow.
 
 ## Installation
 
 Repository: `vitoriadalek/bookvault.koplugin`
 
-Install from KOReader's App Store using the repository URL when the repository is available to the App Store index, or install the repository manually as a `.koplugin` folder for testing.
+Install from KOReader's App Store when the repository is available to the App Store index, or install the repository manually as a `.koplugin` folder for testing.
 
 ## Compatibility
 
-Designed for current KOReader builds using standard plugin APIs. KOReader's current source uses `BookList.getBookStatus()` for book-status filtering and `ReaderUI:showReader()` as the standard reader-opening route. citeturn0search10turn0search3
+Designed for current KOReader builds using standard plugin APIs.
 
 ## Security limitation
 
