@@ -12,7 +12,8 @@ jobs:
         with:
           fetch-depth: 0
       - name: Apply sort UX
-        run: python3 - <<'PY'
+        run: |
+          python3 - <<'PY'
           from pathlib import Path
           p=Path('main.lua')
           s=p.read_text(encoding='utf-8')
