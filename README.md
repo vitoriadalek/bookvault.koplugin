@@ -1,86 +1,39 @@
-# BookVault
+# BookVault 2.3.0
 
-BookVault is a KOReader plugin that creates a virtual reading-status library without moving or copying books.
+Biblioteca visual para KOReader, feita para organizar uma biblioteca pessoal em um mosaico de capas reais sem substituir globalmente o FileManager, FileChooser, ReaderUI ou CoverBrowser.
 
-## Version 2.2.0
+## Recursos
 
-This release keeps the working visual mosaic from 2.1.x and adds a native, visible search button plus persistent custom ordering. The plugin continues to load KOReader's bundled CoverBrowser mosaic components lazily, only when a BookVault library or collection is opened.
+- Mosaico real de capas usando os componentes atuais do CoverBrowser/MosaicMenu do KOReader.
+- Categorias: Todos, Lendo, Em espera, Concluídos e Não iniciados.
+- Coleções nativas do KOReader em modo somente leitura.
+- Pesquisa visível na barra superior, por nome do arquivo e, quando disponível, título/autor dos metadados.
+- Ordenação visível na barra superior por título, autor, mais recentes, modificados recentemente, tamanho e páginas.
+- Ordem personalizada persistente por status e por coleção, com mover para cima, baixo, início e fim.
+- Ordenação escolhida persistente por visualização.
+- Grade de capas personalizável para retrato e paisagem, com 2–8 colunas/linhas, sem substituir o MosaicMenu.
+- Identidade visual BookVault opcional e detalhe lunar opcional na barra.
+- Paginação e indicadores de progresso/status preservados pelo MosaicMenu nativo.
+- Senha numérica com salt/hash.
+- Pastas protegidas e conteúdo privado.
+- Conteúdo privado ocultado nas visualizações do BookVault até desbloqueio.
 
-### Visual library
+## Estabilidade
 
-- Real book covers in a 3 × 3-style mosaic, using KOReader's bundled CoverBrowser/Mosaic components.
-- The mosaic is used for all reading-status categories: Todos, Lendo, Em espera, Concluídos and Não iniciados.
-- The same cover mosaic is used for KOReader Collections opened through BookVault.
-- Cover extraction and caching are delegated to KOReader's BookInfoManager.
-- Reading progress/status hints from KOReader's mosaic system are retained.
-- Partial rows are centered for a cleaner bookshelf appearance.
-- KOReader's native search icon is now created directly in the BookVault BookList title bar, so search is visible instead of depending on a runtime icon replacement.
-- Tap the search icon to search the current BookVault view.
-- Hold the search icon to open sorting options.
+A integração visual é carregada de forma lazy e cada visualização recebe os métodos do CoverMenu/MosaicMenu apenas na própria instância. O plugin não instala monkey patches globais no FileChooser, FileManager, ReaderUI ou CoverBrowser.
 
-### Sorting and custom order
+Se os módulos do CoverBrowser não estiverem disponíveis, o BookVault usa o BookList padrão em vez de falhar no carregamento.
 
-- Sort by title.
-- Sort by author when author metadata is available.
-- Sort by most recent access.
-- Sort by modification date.
-- Sort by file size.
-- Sort by page count when page metadata is available.
-- **Custom order** is persistent and independent for each BookVault status category and each KOReader Collection.
-- Custom order lets you move a book up, down, to the beginning or to the end, then saves the order for future sessions.
-- Existing normal sorting remains available; custom order does not alter the files or KOReader's collections.
+A lógica de capas usa `BookInfoManager`/`MosaicMenu` do KOReader, incluindo cache de capas, progresso e indicadores nativos. O BookVault não altera os arquivos dos livros para implementar pesquisa, ordenação, grade ou coleções.
 
-### Search
+## Privacidade e segurança
 
-- Search is available from every visual library and collection screen.
-- Search filters the current BookVault view without moving or modifying books.
-- Clearing the search restores the complete current view.
+A proteção do BookVault controla o acesso pelas interfaces do plugin. Ela não é criptografia de arquivos nem impede que outro componente do sistema acesse diretamente os arquivos.
 
-### Stability model
+## Compatibilidade
 
-- The visual modules are loaded lazily, only after BookVault is opened.
-- No global FileChooser, FileManager, ReaderUI or CoverBrowser methods are replaced.
-- Visual methods are attached only to the BookVault BookList instance being displayed.
-- The core plugin registration does not require CoverBrowser modules, so an incompatibility there cannot prevent BookVault from appearing in Tools/Plugins.
-- If the bundled CoverBrowser modules are unavailable on a particular KOReader build, BookVault falls back to the standard BookList instead of failing to register.
-- BookVault continues to use KOReader's standard BookList and ReaderUI for navigation.
-- Existing settings are preserved; custom-order data is stored as an additional BookVault setting and does not rewrite book files.
+A versão 2.3.0 acompanha as APIs atuais do KOReader usadas por `Menu`, `TitleBar`, `BookList`, `CoverMenu`, `MosaicMenu` e `BookInfoManager`. Como componentes internos do KOReader podem mudar entre versões, o teste final deve ser feito no dispositivo com a mesma versão do KOReader usada pelo usuário.
 
-### Library and collections
+## AppStore
 
-- Recursive library scan from a configurable folder.
-- Reading-status categories: Todos, Lendo, Em espera, Concluídos and Não iniciados.
-- KOReader Collections are displayed directly inside BookVault.
-- Collection entries are limited to books inside the configured BookVault library root.
-- Private books remain hidden from collection views until content is unlocked.
-- Choose which reading-status categories appear.
-- Choose which KOReader Collections appear.
-- Collection visibility is saved between sessions.
-- Books stay in their original folders.
-
-### Security and privacy
-
-- Private folders are hidden from the public BookVault view until unlocked.
-- Protected/private entries can require a numeric password before opening from BookVault.
-- Passwords use salted SHA-256; plaintext passwords are not stored.
-- Password changes require the current password.
-- Protected/private folder lists can be managed from the plugin menu.
-- Unlock state is cleared when KOReader suspends or resumes.
-
-### Installation
-
-Repository: `vitoriadalek/bookvault.koplugin`
-
-Install from the KOReader community App Store when the repository is available to its index, or install the repository manually as a `.koplugin` folder for testing.
-
-### Compatibility
-
-The visual layer targets the current KOReader CoverBrowser components. The implementation uses the same `bookinfomanager.lua`, `covermenu.lua` and `mosaicmenu.lua` modules shipped with KOReader's CoverBrowser plugin, loaded lazily and without changing their global classes. The visible search button uses the standard KOReader `Menu` title-bar API (`title_bar_left_icon`) at BookVault menu construction time.
-
-### Security limitation
-
-Folder protection is KOReader UI access control, not filesystem encryption. Someone with direct filesystem access to the device can still access the files.
-
-### License
-
-AGPL-3.0-or-later.
+O repositório mantém a estrutura de plugin KOReader e os tópicos de descoberta usados pela AppStore comunitária. A instalação pode usar o branch `main`; uma release do GitHub não é necessária para a descoberta pelo catálogo.
