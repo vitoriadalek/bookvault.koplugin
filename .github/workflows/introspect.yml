@@ -1,0 +1,19 @@
+name: BookVault introspect
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect main
+        run: |
+          echo '--- FUNCTIONS ---'
+          grep -nE '^function BookVault:' main.lua
+          echo '--- MENU REFERENCES ---'
+          grep -nE 'onMenuHold|onTap|showStatusChooser|showLibrary|BookList:new|ReaderUI:showReader|setPassword|togglePrivate|protected_paths|private_paths' main.lua | head -n 250
+          echo '--- TAIL ---'
+          tail -n 180 main.lua
