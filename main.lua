@@ -58,6 +58,17 @@ function BookVault:loadSettings()
     end
     self.settings.data.protected_paths=self.settings.data.protected_paths or {}
     self.settings.data.private_paths=self.settings.data.private_paths or {}
+    if type(self.settings.data.visible_statuses) ~= "table" then
+        self.settings.data.visible_statuses={all=true,reading=true,abandoned=true,complete=true,new=true}
+    end
+    local visible=self.settings.data.visible_statuses
+    local count=0
+    for _,status in ipairs(STATUS) do
+        if visible[status.key] then count=count+1 end
+    end
+    if count == 0 then
+        visible.all=true
+    end
 end
 function BookVault:saveSettings()
     self:loadSettings()
@@ -163,6 +174,10 @@ end
 function BookVault:getStatusLabel(status)
     for _,s in ipairs(STATUS) do if s.key==status then return s.label end end; return STATUS[1].label
 end
+function BookVault:isStatusVisible(status)
+    self:loadSettings()
+    return self.settings.data.visible_statuses[status] == true
+end
 function BookVault:showLibrary(status,include_private)
     safe(function()
         local items={}
@@ -178,9 +193,56 @@ function BookVault:showLibrary(status,include_private)
     end)
 end
 function BookVault:showStatusChooser()
+    self:loadSettings()
     local buttons={}
-    for _,status in ipairs(STATUS) do buttons[#buttons+1]={{text=status.label,callback=function() UIManager:close(self.status_dialog); self:showLibrary(status.key,self.unlocked) end}} end
+    for _,status in ipairs(STATUS) do
+        if self:isStatusVisible(status.key) then
+            buttons[#buttons+1]={{text=status.label,callback=function()
+                UIManager:close(self.status_dialog); self:showLibrary(status.key,self.unlocked)
+            end}}
+        end
+    end
+    if #buttons == 0 then
+        self.settings.data.visible_statuses.all=true
+        self:saveSettings()
+        buttons={{{text=STATUS[1].label,callback=function() UIManager:close(self.status_dialog); self:showLibrary("all",self.unlocked) end}}}
+    end
     self.status_dialog=ButtonDialog:new{title=_("BookVault"),title_align="center",buttons=buttons}; UIManager:show(self.status_dialog)
+end
+function BookVault:showStatusVisibilityChooser()
+    self:loadSettings()
+    local buttons={}
+    local function rebuild()
+        local visible=self.settings.data.visible_statuses
+        buttons={}
+        for _,status in ipairs(STATUS) do
+            local checked=visible[status.key] == true
+            buttons[#buttons+1]={{text=(checked and "☑ " or "☐ ")..status.label,callback=function()
+                if visible[status.key] and (function()
+                    local count=0
+                    for _,item in ipairs(STATUS) do if visible[item.key] then count=count+1 end end
+                    return count <= 1
+                end)() then
+                    UIManager:show(InfoMessage:new{text=_("Mantenha pelo menos uma categoria visível.")})
+                    return
+                end
+                visible[status.key]=not visible[status.key]
+                self:saveSettings()
+                UIManager:close(self.status_visibility_dialog)
+                rebuild()
+            end}}
+        end
+        buttons[#buttons+1]={{text=_("Concluído"),callback=function()
+            UIManager:close(self.status_visibility_dialog)
+        end}}
+        self.status_visibility_dialog=ButtonDialog:new{
+            title=_("Categorias exibidas"),
+            title_align="center",
+            buttons=buttons,
+        }
+        UIManager:show(self.status_visibility_dialog)
+    end
+    rebuild()
 end
 function BookVault:chooseRoot()
     self:loadSettings(); UIManager:show(PathChooser:new{
@@ -213,7 +275,7 @@ function BookVault:addToMainMenu(menu_items)
     menu_items.bookvault={text=_("BookVault"),sorting_hint="more_tools",sub_item_table={
         {text=_("Abrir biblioteca"),callback=function() self:showStatusChooser() end},
         {text_func=function() return self.unlocked and "◉ ".._("Ocultar conteúdo") or "◉ ".._("Revelar conteúdo") end,callback=function() self:togglePrivate() end},
-        {text=_("Biblioteca"),separator=true,sub_item_table={{text=_("Configurar pasta da biblioteca"),callback=function() self:chooseRoot() end}}},
+        {text=_("Biblioteca"),separator=true,sub_item_table={{text=_("Configurar pasta da biblioteca"),callback=function() self:chooseRoot() end},{text=_("Categorias exibidas"),callback=function() self:showStatusVisibilityChooser() end}}},
         {text=_("Segurança"),separator=true,sub_item_table={{text=_("Criar/alterar senha"),callback=function() self:setPassword() end},{text=_("Proteger uma pasta"),callback=function() self:chooseManagedPath(false) end},{text=_("Gerenciar pastas protegidas"),callback=function() self:listManagedPaths(false) end}}},
         {text=_("Privacidade"),separator=true,sub_item_table={{text=_("Tornar uma pasta privada"),callback=function() self:chooseManagedPath(true) end},{text=_("Gerenciar conteúdo privado"),callback=function() self:listManagedPaths(true) end}}},
     }}
