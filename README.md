@@ -2,42 +2,41 @@
 
 BookVault is a KOReader plugin that combines a virtual reading-status library with protected folders and private content.
 
-## Features
+## Version 1.2.0
 
-- Virtual library: books stay in their original folders and are never moved, copied, renamed or duplicated.
-- Recursive scanning of a configurable root folder.
-- Reading statuses from KOReader's own `BookList.getBookStatus()`:
+- Virtual library with recursive scanning of a configurable root.
+- Books remain in their original folders: no moving, copying, renaming or physical collections.
+- Reading status is read from KOReader's `BookList.getBookStatus()`:
   - Lendo
   - Em espera
   - Concluídos
   - Não iniciados
-- Native KOReader CoverBrowser mosaic integration when the built-in CoverBrowser modules are available.
-- Opens the original book file directly.
-- Numeric password with masked input.
-- Salted password hash stored in BookVault settings; the password itself is never stored.
-- Protected folders: navigation and file opening are gated by the same password.
-- Private folders: hidden from the public BookVault library and available through `◉ Acessar conteúdo`.
-- `◉ Ocultar conteúdo` relocks the private library.
-- Private access is relocked on suspend/resume.
-- No physical collection management and no changes to book files.
-
-## Compatibility
-
-Designed for current KOReader builds on Kindle, Kobo, PocketBook, reMarkable, Android and desktop where the standard KOReader plugin APIs used by BookVault are available.
-
-The cover grid uses KOReader's existing CoverBrowser modules when they are loaded. If those modules are unavailable, the plugin keeps its library functional with KOReader's standard BookList rendering instead of failing to load.
+- Protected folders remain represented in the BookVault status library, while opening/navigating to them requires the password.
+- Private folders are excluded from the public library until `◉ Acessar conteúdo` is unlocked.
+- `◉ Ocultar conteúdo` immediately relocks the private view.
+- Numeric masked password with salted SHA-256 hash; the plaintext password is never stored.
+- Changing the password requires the current password.
+- Removing protected/private folder entries requires the password when one exists.
+- File-manager book opening and folder navigation are password-gated through KOReader's standard file-opening/navigation routes.
+- Unlock state is cleared on suspend/resume and when leaving a protected folder.
+- Native CoverBrowser mosaic helpers are reused when available; if unavailable, BookVault falls back to standard BookList rendering instead of failing to load.
+- Selecting a book opens the original file.
 
 ## Installation
 
-BookVault is distributed as a standard `.koplugin` directory through KOReader AppStore.
+KOReader AppStore installs repositories as `<name>.koplugin` folders and validates `_meta.lua`. The current AppStore searches GitHub's `koreader-plugin` topic and also repository naming patterns. See the AppStore documentation for current discovery behavior.
 
-The repository must have the GitHub topic `koreader-plugin` for discovery by the current AppStore catalogue. The AppStore searches that topic as well as certain repository naming patterns. See the AppStore documentation for the current discovery rules.
+Repository: `vitoriadalek/bookvault.koplugin`
+
+For an immediate test, use the AppStore's plugin installation-from-URL flow with the repository above, then restart KOReader when prompted.
+
+## Compatibility
+
+Designed for current KOReader builds on Kindle, Kobo, PocketBook, reMarkable, Android and desktop using standard KOReader plugin APIs.
 
 ## Data and privacy
 
-BookVault stores only its configuration under KOReader's settings directory. Book files and their locations are not modified by the plugin.
-
-Private/protected folder configuration is local to the KOReader installation. The password is stored as a salted hash.
+BookVault stores only its settings under KOReader's settings directory. Book files themselves are not modified. Folder protection is a KOReader UI access control, not filesystem encryption: someone with direct filesystem access to the device can still access the files.
 
 ## License
 
