@@ -2,9 +2,9 @@
 
 BookVault is a KOReader plugin that creates a virtual reading-status library without moving or copying books.
 
-## Version 2.1.2
+## Version 2.1.3
 
-This release restores the visual layer in a safer way: BookVault keeps its stable plugin loader and loads KOReader's bundled CoverBrowser mosaic components only when a BookVault library or collection is opened.
+This release fixes the mosaic integration used by BookVault's status and collection views.
 
 ### Visual library
 
@@ -17,7 +17,8 @@ This release restores the visual layer in a safer way: BookVault keeps its stabl
 - A BookVault cat icon is used as the title-bar button when the writable user icon directory is available.
 - Tap the cat/search button to search the current BookVault view.
 - Hold the cat/search button to choose sorting: title, most recent access, modification date or file size.
-- If the bundled CoverBrowser modules are unavailable on a particular KOReader build, BookVault automatically falls back to the standard BookList instead of failing to load.
+- The mosaic now deliberately keeps KOReader's native `BookList.getBookInfo()` for reading status/progress; CoverBrowser's BookInfoManager is used separately for cover extraction. This matches the way KOReader's own MosaicMenu is structured.
+- BookVault performs a first visual redraw before displaying the menu. If that redraw fails, it restores the native BookList methods and displays the normal BookList instead of leaving a blank/error screen.
 
 ### Stability model
 
@@ -26,6 +27,7 @@ This release restores the visual layer in a safer way: BookVault keeps its stabl
 - Visual methods are attached only to the BookVault BookList instance being displayed.
 - The core plugin registration does not require CoverBrowser modules, so an incompatibility there cannot prevent BookVault from appearing in Tools/Plugins.
 - BookVault continues to use KOReader's standard BookList and ReaderUI for navigation.
+- Visual failures are contained with a native BookList fallback.
 
 ### Library and collections
 
