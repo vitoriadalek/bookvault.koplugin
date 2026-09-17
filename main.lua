@@ -221,9 +221,7 @@ function BookVault:scanBooks(include_private)
                 local path = dir .. "/" .. name
                 local attr = lfs.attributes(path)
                 if attr and attr.mode == "directory" then
-                    if include_private or not self:isPrivate(path) then
-                        scan(path)
-                    end
+                    if include_private or not self:isPrivate(path) then scan(path) end
                 elseif attr and attr.mode == "file" then
                     local provider_ok = pcall(DocumentRegistry.hasProvider, DocumentRegistry, path)
                     if provider_ok and DocumentRegistry:hasProvider(path) and (include_private or not self:isPrivate(path)) then
@@ -373,6 +371,7 @@ end
 function BookVault:addToMainMenu(menu_items)
     menu_items.bookvault = {
         text = _("BookVault"),
+        sorting_hint = "more_tools",
         sub_item_table = {
             { text = _("Abrir biblioteca"), callback = function() self:showStatusChooser() end },
             {
@@ -392,10 +391,10 @@ function BookVault:addToMainMenu(menu_items)
 end
 
 function BookVault:onDispatcherRegisterActions()
-    Dispatcher:registerAction("bookvault_open", {
+    Dispatcher:registerAction(self.name, {
         category = "none",
         event = "BookVaultOpen",
-        title = _("BookVault"),
+        title = self.fullname,
         general = true,
     })
 end
