@@ -61,13 +61,10 @@ function BookVault:loadSettings()
     if type(self.settings.data.visible_statuses) ~= "table" then
         self.settings.data.visible_statuses={all=true,reading=true,abandoned=true,complete=true,new=true}
     end
-    if type(self.settings.data.visible_collections) ~= "table" then
-        self.settings.data.visible_collections={}
-    end
-    local visible=self.settings.data.visible_statuses
-    local count=0
+    if type(self.settings.data.visible_collections) ~= "table" then self.settings.data.visible_collections={} end
+    local visible=self.settings.data.visible_statuses; local count=0
     for _,status in ipairs(STATUS) do if visible[status.key] then count=count+1 end end
-    if count == 0 then visible.all=true end
+    if count==0 then visible.all=true end
 end
 function BookVault:saveSettings()
     self:loadSettings(); local ok,err=pcall(self.settings.flush,self.settings)
@@ -195,32 +192,22 @@ function BookVault:collectionItems(collection_name,include_private)
     end
     table.sort(items,function(a,b) return a.text:lower()<b.text:lower() end); return items
 end
-
 function BookVault:sortBookVaultItems(menu,mode)
     if not menu then return end
     local items=menu._bookvault_source_items or menu.item_table or {}; local sorted={}
     for i,item in ipairs(items) do sorted[i]=item end
-    if mode=="recent" then
-        table.sort(sorted,function(a,b) return (a.attr and a.attr.access or 0)>(b.attr and b.attr.access or 0) end)
-    elseif mode=="modified" then
-        table.sort(sorted,function(a,b) return (a.attr and a.attr.modification or 0)>(b.attr and b.attr.modification or 0) end)
-    elseif mode=="size" then
-        table.sort(sorted,function(a,b) return (a.attr and a.attr.size or 0)>(b.attr and b.attr.size or 0) end)
-    else
-        table.sort(sorted,function(a,b) return (a.text or ""):lower()<(b.text or ""):lower() end)
-    end
+    if mode=="recent" then table.sort(sorted,function(a,b) return (a.attr and a.attr.access or 0)>(b.attr and b.attr.access or 0) end)
+    elseif mode=="modified" then table.sort(sorted,function(a,b) return (a.attr and a.attr.modification or 0)>(b.attr and b.attr.modification or 0) end)
+    elseif mode=="size" then table.sort(sorted,function(a,b) return (a.attr and a.attr.size or 0)>(b.attr and b.attr.size or 0) end)
+    else table.sort(sorted,function(a,b) return (a.text or ""):lower()<(b.text or ""):lower() end) end
     menu._bookvault_source_items=sorted; menu.item_table=sorted; menu.page=1
     if menu._bookvault_sort_dialog then UIManager:close(menu._bookvault_sort_dialog); menu._bookvault_sort_dialog=nil end
     menu:updateItems()
 end
 
--- The visual layer is lazy and optional. No coverbrowser module is required while
--- KOReader is loading BookVault, so a missing/incompatible visual dependency can
--- never prevent the plugin from appearing in Tools/Plugins.
 function BookVault:prepareVisualMenu(menu,source_items)
     menu._bookvault_source_items=source_items
     menu.sortBookVaultItems=function(instance,mode) self:sortBookVaultItems(instance,mode) end
-    menu.title_bar_left_icon="search"
     menu.onLeftButtonTap=function(instance)
         local dialog
         dialog=InputDialog:new{title=_("Buscar na biblioteca"),input="",input_type="text",buttons={{
@@ -247,6 +234,21 @@ function BookVault:prepareVisualMenu(menu,source_items)
         instance._bookvault_sort_dialog=ButtonDialog:new{title=_("Ordenar livros"),title_align="center",buttons=buttons}; UIManager:show(instance._bookvault_sort_dialog)
     end
 
+    -- Create the cute BookVault cat icon in KOReader's writable user icon folder.
+    -- This happens only when a visual library is opened and is fully optional.
+    local cat_ok=pcall(function()
+        local icon_dir=DataStorage:getDataDir().."/icons"
+        if lfs.attributes(icon_dir,"mode")~="directory" then lfs.mkdir(icon_dir) end
+        local icon_path=icon_dir.."/bookvault-cat.svg"
+        if lfs.attributes(icon_path,"mode")~="file" then
+            local file=io.open(icon_path,"w")
+            if not file then error("could not create BookVault cat icon") end
+            file:write('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><g fill="none" stroke="#000" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 27 13 13l14 7c3-1 7-1 10 0l14-7-5 14c3 3 5 7 5 12 0 9-9 15-22 15S7 48 7 39c0-5 2-9 5-12z" fill="#000"/><path d="M20 38h.1M44 38h.1" stroke="#fff" stroke-width="4"/><path d="M29 44c2 2 4 2 6 0M32 42v3" stroke="#fff"/><path d="M32 7v5M26 10h12M54 25h6M57 22v6"/></g></svg>')
+            file:close()
+        end
+    end)
+    if menu.title_bar and menu.title_bar.setLeftIcon then menu.title_bar:setLeftIcon(cat_ok and "bookvault-cat" or "search") end
+
     local ok_cover,CoverBrowser=pcall(require,"coverbrowser")
     local ok_menu,CoverMenu=pcall(require,"covermenu")
     local ok_mosaic,MosaicMenu=pcall(require,"mosaicmenu")
@@ -255,9 +257,6 @@ function BookVault:prepareVisualMenu(menu,source_items)
     end
     local ok_grid,grid_err=pcall(CoverBrowser.initGrid,menu,"mosaic_image")
     if not ok_grid then logger.warn("BookVault: could not initialize mosaic:",grid_err); return false end
-
-    -- MosaicMenuItem asks its parent menu for getBookInfo(); this is the same
-    -- provider used by KOReader's CoverBrowser and does not modify global classes.
     menu.getBookInfo=CoverBrowser.getBookInfo
     menu.updateItems=CoverMenu.updateItems
     menu.onCloseWidget=CoverMenu.onCloseWidget
@@ -268,7 +267,6 @@ function BookVault:prepareVisualMenu(menu,source_items)
     menu._do_center_partial_rows=true
     return true
 end
-
 function BookVault:showCollection(collection_name)
     safe(function()
         local items=self:collectionItems(collection_name,self.unlocked)
