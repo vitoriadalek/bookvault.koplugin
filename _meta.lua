@@ -1,6 +1,6 @@
 return {
     name = "bookvault",
     fullname = "BookVault",
-    description = "Visual reading library with real cover mosaic, visible search and sorting, metadata-aware search, persistent custom order, customizable grid, KOReader collections, private content and password-protected folders, with lightweight cute PNG icons and a native title-bar compatibility fallback.",
-    version = "2.5.2",
+    description = "Visual reading library with real cover mosaic, search, sorting, metadata actions, collections, multi-selection, privacy, protected folders and lightweight native KOReader integration.",
+    version = "3.0.0",
 }
