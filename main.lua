@@ -61,6 +61,9 @@ function BookVault:loadSettings()
     if type(self.settings.data.visible_statuses) ~= "table" then
         self.settings.data.visible_statuses={all=true,reading=true,abandoned=true,complete=true,new=true}
     end
+    if type(self.settings.data.visible_collections) ~= "table" then
+        self.settings.data.visible_collections={}
+    end
     local visible=self.settings.data.visible_statuses
     local count=0
     for _,status in ipairs(STATUS) do
@@ -178,6 +181,109 @@ function BookVault:isStatusVisible(status)
     self:loadSettings()
     return self.settings.data.visible_statuses[status] == true
 end
+
+function BookVault:getCollections()
+    local ok, ReadCollection = pcall(require, "readcollection")
+    if not ok or not ReadCollection or type(ReadCollection.coll) ~= "table" then return {} end
+    local collections = {}
+    for name, coll in pairs(ReadCollection.coll) do
+        if type(name) == "string" and type(coll) == "table" then
+            local settings = ReadCollection.coll_settings and ReadCollection.coll_settings[name] or {}
+            collections[#collections + 1] = {
+                name = name,
+                order = tonumber(settings.order) or 999999,
+                count = 0,
+            }
+            for file in pairs(coll) do
+                if file then collections[#collections].count = collections[#collections].count + 1 end
+            end
+        end
+    end
+    table.sort(collections, function(a,b)
+        if a.order == b.order then return a.name:lower() < b.name:lower() end
+        return a.order < b.order
+    end)
+    return collections
+end
+function BookVault:isCollectionVisible(name)
+    self:loadSettings()
+    local visible = self.settings.data.visible_collections[name]
+    return visible ~= false
+end
+function BookVault:collectionItems(collection_name, include_private)
+    local root=self:getRoot()
+    if not root then return {} end
+    local ok, ReadCollection = pcall(require, "readcollection")
+    if not ok or not ReadCollection or type(ReadCollection.coll) ~= "table" then return {} end
+    local coll=ReadCollection.coll[collection_name]
+    if type(coll) ~= "table" then return {} end
+    local items={}
+    for file, item in pairs(coll) do
+        local path=normalize(file)
+        if path and contains(root,path) and (include_private or not self:isPrivate(path)) and lfs.attributes(path,"mode")=="file" then
+            items[#items+1]={path=path,filepath=path,text=item.text or path:match("[^/]+$"),attr=item.attr,is_file=true}
+        end
+    end
+    table.sort(items,function(a,b) return a.text:lower()<b.text:lower() end)
+    return items
+end
+function BookVault:showCollection(collection_name)
+    safe(function()
+        local items=self:collectionItems(collection_name,self.unlocked)
+        local menu=BookList:new{
+            name="bookvault_collection_"..collection_name,
+            title=_("BookVault").." · "..collection_name,
+            item_table=items,
+            covers_fullscreen=true,
+            onMenuSelect=function(_,item) self:guard(item.path,function()
+                if lfs.attributes(item.path,"mode")~="file" then UIManager:show(InfoMessage:new{text=_("O arquivo não existe mais.")}); return end
+                ReaderUI:showReader(item.path)
+            end) end,
+        }
+        UIManager:show(menu); menu:updateItems()
+    end)
+end
+function BookVault:showCollectionChooser()
+    local collections=self:getCollections()
+    local buttons={}
+    for _,collection in ipairs(collections) do
+        if self:isCollectionVisible(collection.name) then
+            buttons[#buttons+1]={{text=collection.name,callback=function()
+                UIManager:close(self.collection_dialog); self:showCollection(collection.name)
+            end}}
+        end
+    end
+    if #buttons == 0 then
+        UIManager:show(InfoMessage:new{text=_("Nenhuma coleção está configurada para aparecer no BookVault.")})
+        return
+    end
+    buttons[#buttons+1]={{text=_("Voltar"),callback=function() UIManager:close(self.collection_dialog) end}}
+    self.collection_dialog=ButtonDialog:new{title=_("Coleções"),title_align="center",buttons=buttons}; UIManager:show(self.collection_dialog)
+end
+function BookVault:showCollectionVisibilityChooser()
+    self:loadSettings()
+    local collections=self:getCollections()
+    if #collections == 0 then
+        UIManager:show(InfoMessage:new{text=_("Nenhuma coleção do KOReader foi encontrada.")})
+        return
+    end
+    local function rebuild()
+        local buttons={}
+        for _,collection in ipairs(collections) do
+            local checked=self:isCollectionVisible(collection.name)
+            buttons[#buttons+1]={{text=(checked and "☑ " or "☐ ")..collection.name,callback=function()
+                self.settings.data.visible_collections[collection.name]=not checked
+                self:saveSettings()
+                UIManager:close(self.collection_visibility_dialog)
+                rebuild()
+            end}}
+        end
+        buttons[#buttons+1]={{text=_("Concluído"),callback=function() UIManager:close(self.collection_visibility_dialog) end}}
+        self.collection_visibility_dialog=ButtonDialog:new{title=_("Coleções exibidas"),title_align="center",buttons=buttons}; UIManager:show(self.collection_visibility_dialog)
+    end
+    rebuild()
+end
+
 function BookVault:showLibrary(status,include_private)
     safe(function()
         local items={}
@@ -199,6 +305,14 @@ function BookVault:showStatusChooser()
         if self:isStatusVisible(status.key) then
             buttons[#buttons+1]={{text=status.label,callback=function()
                 UIManager:close(self.status_dialog); self:showLibrary(status.key,self.unlocked)
+            end}}
+        end
+    end
+    local collections=self:getCollections()
+    for _,collection in ipairs(collections) do
+        if self:isCollectionVisible(collection.name) then
+            buttons[#buttons+1]={{text="▸ "..collection.name,callback=function()
+                UIManager:close(self.status_dialog); self:showCollection(collection.name)
             end}}
         end
     end
@@ -232,15 +346,8 @@ function BookVault:showStatusVisibilityChooser()
                 rebuild()
             end}}
         end
-        buttons[#buttons+1]={{text=_("Concluído"),callback=function()
-            UIManager:close(self.status_visibility_dialog)
-        end}}
-        self.status_visibility_dialog=ButtonDialog:new{
-            title=_("Categorias exibidas"),
-            title_align="center",
-            buttons=buttons,
-        }
-        UIManager:show(self.status_visibility_dialog)
+        buttons[#buttons+1]={{text=_("Concluído"),callback=function() UIManager:close(self.status_visibility_dialog) end}}
+        self.status_visibility_dialog=ButtonDialog:new{title=_("Categorias exibidas"),title_align="center",buttons=buttons}; UIManager:show(self.status_visibility_dialog)
     end
     rebuild()
 end
@@ -275,7 +382,7 @@ function BookVault:addToMainMenu(menu_items)
     menu_items.bookvault={text=_("BookVault"),sorting_hint="more_tools",sub_item_table={
         {text=_("Abrir biblioteca"),callback=function() self:showStatusChooser() end},
         {text_func=function() return self.unlocked and "◉ ".._("Ocultar conteúdo") or "◉ ".._("Revelar conteúdo") end,callback=function() self:togglePrivate() end},
-        {text=_("Biblioteca"),separator=true,sub_item_table={{text=_("Configurar pasta da biblioteca"),callback=function() self:chooseRoot() end},{text=_("Categorias exibidas"),callback=function() self:showStatusVisibilityChooser() end}}},
+        {text=_("Biblioteca"),separator=true,sub_item_table={{text=_("Configurar pasta da biblioteca"),callback=function() self:chooseRoot() end},{text=_("Categorias exibidas"),callback=function() self:showStatusVisibilityChooser() end},{text=_("Coleções"),callback=function() self:showCollectionChooser() end},{text=_("Coleções exibidas"),callback=function() self:showCollectionVisibilityChooser() end}}},
         {text=_("Segurança"),separator=true,sub_item_table={{text=_("Criar/alterar senha"),callback=function() self:setPassword() end},{text=_("Proteger uma pasta"),callback=function() self:chooseManagedPath(false) end},{text=_("Gerenciar pastas protegidas"),callback=function() self:listManagedPaths(false) end}}},
         {text=_("Privacidade"),separator=true,sub_item_table={{text=_("Tornar uma pasta privada"),callback=function() self:chooseManagedPath(true) end},{text=_("Gerenciar conteúdo privado"),callback=function() self:listManagedPaths(true) end}}},
     }}
