@@ -306,13 +306,18 @@ function BookVault:prepareVisualMenu(menu,source_items)
     local BookInfoManager,CoverMenu,MosaicMenu=self:loadVisualModules()
     if not BookInfoManager then return false end
 
-    menu.nb_cols_portrait=BookInfoManager:getSetting("nb_cols_portrait") or 3
-    menu.nb_rows_portrait=BookInfoManager:getSetting("nb_rows_portrait") or 3
-    menu.nb_cols_landscape=BookInfoManager:getSetting("nb_cols_landscape") or 4
-    menu.nb_rows_landscape=BookInfoManager:getSetting("nb_rows_landscape") or 2
-    menu.files_per_page=BookInfoManager:getSetting("files_per_page")
+    local ok_settings = pcall(function()
+        menu.nb_cols_portrait=BookInfoManager:getSetting("nb_cols_portrait") or 3
+        menu.nb_rows_portrait=BookInfoManager:getSetting("nb_rows_portrait") or 3
+        menu.nb_cols_landscape=BookInfoManager:getSetting("nb_cols_landscape") or 4
+        menu.nb_rows_landscape=BookInfoManager:getSetting("nb_rows_landscape") or 2
+        menu.files_per_page=BookInfoManager:getSetting("files_per_page")
+    end)
+    if not ok_settings then return false end
+
     menu.display_mode_type="mosaic"
-    menu.getBookInfo=function(_,filepath) return BookInfoManager:getBookInfo(filepath,true) end
+    -- Keep BookList:getBookInfo(): MosaicMenu uses it for reading status/progress.
+    -- CoverBrowser's BookInfoManager is used separately by MosaicMenuItem for covers.
     menu.updateItems=CoverMenu.updateItems
     menu.onCloseWidget=CoverMenu.onCloseWidget
     menu._recalculateDimen=MosaicMenu._recalculateDimen
@@ -332,15 +337,51 @@ function BookVault:makeBookMenu(name,title,items)
             ReaderUI:showReader(item.path)
         end) end,
     }
+
+    -- Keep a native BookList as the hard fallback. The visual layer is only
+    -- enabled after its dependencies and first redraw have succeeded.
+    local visual_ok = false
+    local original_update = menu.updateItems
+    local original_close = menu.onCloseWidget
+    local original_recalc = menu._recalculateDimen
+    local original_build = menu._updateItemsBuildUI
+    local original_display_mode = menu.display_mode_type
+    local original_do_cover_images = menu._do_cover_images
+    local original_do_hint_opened = menu._do_hint_opened
+    local original_center_rows = menu._do_center_partial_rows
+
+    local prepared = false
+    local ok_prepare = pcall(function()
+        prepared = self:prepareVisualMenu(menu,items)
+    end)
+
+    if ok_prepare and prepared then
+        local ok_update = pcall(function() menu:updateItems() end)
+        visual_ok = ok_update
+    end
+
+    if not visual_ok then
+        menu.updateItems = original_update
+        menu.onCloseWidget = original_close
+        menu._recalculateDimen = original_recalc
+        menu._updateItemsBuildUI = original_build
+        menu.display_mode_type = original_display_mode
+        menu._do_cover_images = original_do_cover_images
+        menu._do_hint_opened = original_do_hint_opened
+        menu._do_center_partial_rows = original_center_rows
+        menu._bookvault_visual = nil
+        logger.warn("BookVault: visual mosaic failed; falling back to native BookList")
+    end
+
     self._active_visual_menu=menu
-    self:prepareVisualMenu(menu,items)
-    return menu
+    return menu, visual_ok
 end
 
 function BookVault:showCollection(collection_name)
     safe(function()
-        local menu=self:makeBookMenu("bookvault_collection_"..collection_name,_("BookVault").." · "..collection_name,self:collectionItems(collection_name,self.unlocked))
-        UIManager:show(menu); menu:updateItems()
+        local menu,visual=self:makeBookMenu("bookvault_collection_"..collection_name,_("BookVault").." · "..collection_name,self:collectionItems(collection_name,self.unlocked))
+        UIManager:show(menu)
+        if not visual then menu:updateItems() end
     end)
 end
 function BookVault:showCollectionChooser()
@@ -373,8 +414,9 @@ function BookVault:showLibrary(status,include_private)
     safe(function()
         local items={}
         for _,item in ipairs(self:scanBooks(include_private)) do if status=="all" or BookList.getBookStatus(item.path)==status then items[#items+1]=item end end
-        local menu=self:makeBookMenu("bookvault_library",_("BookVault").." · "..self:getStatusLabel(status),items)
-        UIManager:show(menu); menu:updateItems()
+        local menu,visual=self:makeBookMenu("bookvault_library",_("BookVault").." · "..self:getStatusLabel(status),items)
+        UIManager:show(menu)
+        if not visual then menu:updateItems() end
     end)
 end
 function BookVault:showStatusChooser()
