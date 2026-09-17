@@ -18,7 +18,7 @@ source = source:gsub("^@", "")
 local plugin_dir = source:match("^(.+)/[^/]+$")
 
 local icons = {
-    ["bookvault-search.png"] = "bookvault-search-png.png",
+    ["bookvault-search.png"] = "bookvault-search.png",
     ["bookvault-sort.png"] = "bookvault-sort.png",
     ["bookvault-sort-cat.png"] = "bookvault-sort-cat.png",
     ["bookvault-cat.png"] = "bookvault-cat.png",

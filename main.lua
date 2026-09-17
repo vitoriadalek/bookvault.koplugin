@@ -1,5 +1,11 @@
 require("bookvault_icons_bootstrap")
 local ButtonDialog = require("ui/widget/buttondialog")
+local Geom = require("ui/geometry")
+local HorizontalGroup = require("ui/widget/horizontalgroup")
+local HorizontalSpan = require("ui/widget/horizontalspan")
+local IconButton = require("ui/widget/iconbutton")
+local IconWidget = require("ui/widget/iconwidget")
+local RightContainer = require("ui/widget/container/rightcontainer")
 local DataStorage = require("datastorage")
 local DoubleSpinWidget = require("ui/widget/doublespinwidget")
 local InfoMessage = require("ui/widget/infomessage")
@@ -7,7 +13,6 @@ local InputDialog = require("ui/widget/inputdialog")
 local LuaSettings = require("luasettings")
 local PathChooser = require("ui/widget/pathchooser")
 local ReaderUI = require("apps/reader/readerui")
-local TitleBar = require("ui/widget/titlebar")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local BookList = require("ui/widget/booklist")
@@ -412,19 +417,11 @@ function BookVault:ensureBookVaultIcons()
     local icon_dir=DataStorage:getDataDir().."/icons"
     if lfs.attributes(icon_dir,"mode")~="directory" then pcall(lfs.mkdir,icon_dir) end
     if lfs.attributes(icon_dir,"mode")~="directory" then return false end
-    local icons={
-        ["bookvault-cat.svg"]=[[<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><path d="M18 27 13 13l14 7c3-1 7-1 10 0l14-7-5 14c3 3 5 7 5 12 0 9-9 15-22 15S7 48 7 39c0-5 2-9 5-12z" fill="#000"/><path d="M20 38h.1M44 38h.1" stroke="#fff" stroke-width="4" stroke-linecap="round"/><path d="M29 44c2 2 4 2 6 0M32 42v3M32 7v5M26 10h12" fill="none" stroke="#000" stroke-width="3" stroke-linecap="round"/></svg>]],
-        ["bookvault-sort.svg"]=[[<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><g fill="none" stroke="#000" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 14v36"/><path d="m10 22 8-8 8 8"/><path d="M38 50V14"/><path d="m30 42 8 8 8-8"/><path d="M50 14h6M50 26h6M50 38h6"/></g></svg>]],
-        ["bookvault-sort-cat.svg"]=[[<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><g fill="none" stroke="#000" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 39V21l9 5c4-2 10-2 14 0l9-5v18c0 8-7 14-16 14S12 47 12 39z" fill="#000"/><path d="M20 38h.1M36 38h.1M25 44c2 2 4 2 6 0" stroke="#fff" stroke-width="3"/><path d="M49 12v36M43 18l6-6 6 6M43 42l6 6 6-6"/><path d="M2 18h6M2 30h6M2 42h6"/></g></svg>]],
-    }
-    for name,data in pairs(icons) do
-        local path=icon_dir.."/"..name
-        if lfs.attributes(path,"mode")~="file" then
-            local file=io.open(path,"w")
-            if file then file:write(data); file:close() end
-        end
+    local required={"bookvault-search.png","bookvault-sort.png","bookvault-sort-cat.png","bookvault-cat.png","bookvault-moon.png"}
+    for _,name in ipairs(required) do
+        if lfs.attributes(icon_dir.."/"..name,"mode")~="file" then return false end
     end
-    return lfs.attributes(icon_dir.."/bookvault-sort.svg","mode")=="file"
+    return true
 end
 
 function BookVault:loadBookInfoManager()
@@ -455,7 +452,10 @@ function BookVault:showGridSettings(menu)
             if menu and menu._bookvault_visual then
                 if landscape then menu.nb_cols_landscape=cols; menu.nb_rows_landscape=rows
                 else menu.nb_cols_portrait=cols; menu.nb_rows_portrait=rows end
-                menu.no_refresh_covers=true; menu:updateItems(); menu.no_refresh_covers=nil
+                menu.no_refresh_covers=true
+                if menu._recalculateDimen then pcall(menu._recalculateDimen,menu) end
+                menu:updateItems()
+                menu.no_refresh_covers=nil
             end
         end
         local widget=DoubleSpinWidget:new{
@@ -515,6 +515,41 @@ function BookVault:prepareVisualMenu(menu,source_items)
     return true
 end
 
+function BookVault:decorateTitleBar(menu, appearance, search_cb, sort_cb)
+    local bar=menu and menu.title_bar
+    if not bar then return end
+    local old_right=bar.right_button
+    if old_right then
+        for i=1,#bar do
+            if bar[i]==old_right then table.remove(bar,i); break end
+        end
+        pcall(old_right.free,old_right,true)
+        bar.right_button=nil
+        bar.has_right_icon=false
+    end
+    if bar._bookvault_action_group then
+        pcall(bar._bookvault_action_group.free,bar._bookvault_action_group,true)
+        bar._bookvault_action_group=nil
+    end
+    local icon_size=Screen:scaleBySize(25)
+    local button_padding=Screen:scaleBySize(5)
+    local gap=Screen:scaleBySize(2)
+    local group=HorizontalGroup:new{align="center"}
+    table.insert(group,IconButton:new{icon="bookvault-search",width=icon_size,height=icon_size,padding=button_padding,callback=search_cb,show_parent=menu})
+    if appearance.show_moon then
+        table.insert(group,HorizontalSpan:new{width=gap})
+        table.insert(group,IconWidget:new{icon="bookvault-moon",width=Screen:scaleBySize(18),height=Screen:scaleBySize(18),dim=true})
+    end
+    table.insert(group,HorizontalSpan:new{width=gap})
+    table.insert(group,IconButton:new{icon=appearance.show_cat and "bookvault-sort-cat" or "bookvault-sort",width=icon_size,height=icon_size,padding=button_padding,callback=sort_cb,show_parent=menu})
+    local width=bar.width or Screen:getWidth()
+    local height=(bar.getHeight and bar:getHeight()) or Screen:scaleBySize(44)
+    local right=RightContainer:new{dimen=Geom:new{x=0,y=0,w=width,h=height},group}
+    table.insert(bar,right)
+    bar._bookvault_action_group=right
+    pcall(function() UIManager:setDirty(menu,"ui",bar.dimen) end)
+end
+
 function BookVault:makeBookMenu(name,title,items,view_key)
     local menu
     self:ensureBookVaultIcons()
@@ -522,22 +557,10 @@ function BookVault:makeBookMenu(name,title,items,view_key)
     local appearance=self.settings.data.appearance
     if appearance.show_cat == nil then appearance.show_cat=true end
     if appearance.show_moon == nil then appearance.show_moon=true end
-    local subtitle_parts={}
-    if appearance.show_cat then subtitle_parts[#subtitle_parts+1]="=^.^=" end
-    if appearance.show_moon then subtitle_parts[#subtitle_parts+1]="☾" end
-    local subtitle_text=#subtitle_parts>0 and table.concat(subtitle_parts,"  ·  ") or nil
-    local custom_title_bar
     local function search_cb() self:showSearchDialog(menu) end
     local function sort_cb() self:showSortDialog(menu) end
-    custom_title_bar=TitleBar:new{
-        width=Screen:getWidth(),fullscreen="true",align="center",title=title,subtitle=subtitle_text,
-        left_icon="appbar.search",left_icon_tap_callback=search_cb,
-        right_icon=appearance.show_cat and "bookvault-sort-cat" or "bookvault-sort",right_icon_tap_callback=sort_cb,
-        show_parent=self,
-    }
     menu=BookList:new{
         name=name,title=title,item_table=items,covers_fullscreen=true,
-        custom_title_bar=custom_title_bar,
         onMenuSelect=function(_,item) self:guard(item.path,function()
             if lfs.attributes(item.path,"mode")~="file" then UIManager:show(InfoMessage:new{text=_("O arquivo não existe mais.")}); return end
             ReaderUI:showReader(item.path)
@@ -552,6 +575,7 @@ function BookVault:makeBookMenu(name,title,items,view_key)
     if saved_sort and saved_sort ~= "custom" then self:sortBookVaultItems(menu,saved_sort) end
     local ok_visual=self:prepareVisualMenu(menu,menu._bookvault_source_items)
     if not ok_visual then menu._bookvault_source_items=items; menu.item_table=items end
+    self:decorateTitleBar(menu,appearance,search_cb,sort_cb)
     return menu
 end
 
