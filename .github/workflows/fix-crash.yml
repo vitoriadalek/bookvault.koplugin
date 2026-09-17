@@ -1,0 +1,25 @@
+name: BookVault crash-safe finalizer
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply crash-safe fix
+        run: python3 .github/fix-crash.py
+      - name: Validate and commit
+        run: |
+          git diff --check
+          git config user.name "Vitoria"
+          git config user.email "166748655+vitoriadalek@users.noreply.github.com"
+          git add main.lua _meta.lua README.md
+          git commit -m "Make BookVault sort initialization crash-safe"
+          git rm .github/fix-crash.py .github/workflows/fix-crash.yml
+          git commit -m "Remove temporary crash fixer"
+          git push origin HEAD:main
