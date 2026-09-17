@@ -292,6 +292,8 @@ function BookVault:showCustomOrderEditor(menu)
                     if action then UIManager:close(action) end
                     self:saveCustomOrder(view_key, working)
                     rebuild()
+                    menu._bookvault_filtered_items = nil
+                    menu._bookvault_source_items = copyItems(working)
                     menu.item_table = copyItems(working)
                     menu.page = 1
                     menu:updateItems()
@@ -306,7 +308,7 @@ function BookVault:showCustomOrderEditor(menu)
                 UIManager:show(action)
             end}}
         end
-        buttons[#buttons+1]={{text=_("Concluído"), callback=function() self:saveCustomOrder(view_key,working); UIManager:close(dialog); menu.item_table=copyItems(working); menu.page=1; menu:updateItems() end}}
+        buttons[#buttons+1]={{text=_("Concluído"), callback=function() self:saveCustomOrder(view_key,working); UIManager:close(dialog); menu._bookvault_filtered_items=nil; menu._bookvault_source_items=copyItems(working); menu.item_table=copyItems(working); menu.page=1; menu:updateItems() end}}
         dialog=ButtonDialog:new{title=_("Ordem personalizada"),title_align="center",buttons=buttons}
         UIManager:show(dialog)
     end
