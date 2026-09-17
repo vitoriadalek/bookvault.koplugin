@@ -7,7 +7,6 @@ local HorizontalSpan = require("ui/widget/horizontalspan")
 local ImageWidget = require("ui/widget/imagewidget")
 local InfoMessage = require("ui/widget/infomessage")
 local InputDialog = require("ui/widget/inputdialog")
-local LeftContainer = require("ui/widget/container/leftcontainer")
 local LuaSettings = require("luasettings")
 local OverlapGroup = require("ui/widget/overlapgroup")
 local PathChooser = require("ui/widget/pathchooser")
@@ -85,14 +84,11 @@ function BookVault:loadSettings()
     end
     local visible=self.settings.data.visible_statuses
     local count=0
-    for _,status in ipairs(STATUS) do
-        if visible[status.key] then count=count+1 end
-    end
+    for _,status in ipairs(STATUS) do if visible[status.key] then count=count+1 end end
     if count == 0 then visible.all=true end
 end
 function BookVault:saveSettings()
-    self:loadSettings()
-    local ok,err=pcall(self.settings.flush,self.settings)
+    self:loadSettings(); local ok,err=pcall(self.settings.flush,self.settings)
     if not ok then logger.err("BookVault: flush error",err) end
 end
 function BookVault:getRoot()
@@ -100,8 +96,7 @@ function BookVault:getRoot()
     if root and lfs.attributes(root,"mode")=="directory" then return normalize(root) end
 end
 function BookVault:hasPassword()
-    self:loadSettings()
-    return self.settings.data.password_hash ~= nil and self.settings.data.password_salt ~= nil
+    self:loadSettings(); return self.settings.data.password_hash ~= nil and self.settings.data.password_salt ~= nil
 end
 function BookVault:hashPassword(password,salt) return sha2.sha256(salt..password) end
 function BookVault:verifyPassword(password)
@@ -110,18 +105,14 @@ end
 function BookVault:askPassword(callback,title)
     if not self:hasPassword() then callback(false); return end
     local dialog
-    dialog=InputDialog:new{
-        title=title or _("Senha do BookVault"), input="", input_type="number", text_type="password",
-        buttons={{
-            {text=_("Cancelar"),callback=function() UIManager:close(dialog) end},
-            {text=_("OK"),is_enter_default=true,callback=function()
-                local password=dialog:getInputText(); UIManager:close(dialog)
-                if self:verifyPassword(password) then safe(function() callback(true) end)
-                else UIManager:show(InfoMessage:new{text=_("Senha incorreta.")}); callback(false) end
-            end},
-        }},
-    }
-    UIManager:show(dialog); dialog:onShowKeyboard()
+    dialog=InputDialog:new{title=title or _("Senha do BookVault"),input="",input_type="number",text_type="password",buttons={{
+        {text=_("Cancelar"),callback=function() UIManager:close(dialog) end},
+        {text=_("OK"),is_enter_default=true,callback=function()
+            local password=dialog:getInputText(); UIManager:close(dialog)
+            if self:verifyPassword(password) then safe(function() callback(true) end)
+            else UIManager:show(InfoMessage:new{text=_("Senha incorreta.")}); callback(false) end
+        end},
+    }}}; UIManager:show(dialog); dialog:onShowKeyboard()
 end
 function BookVault:saveNewPassword(password)
     local salt=table.concat({tostring(os.time()),tostring(math.random()),tostring(os.clock())},":")
@@ -130,28 +121,22 @@ end
 function BookVault:setPassword(on_saved)
     local function create()
         local first
-        first=InputDialog:new{
-            title=self:hasPassword() and _("Nova senha numérica") or _("Criar senha numérica"),input="",input_type="number",text_type="password",
-            buttons={{
-                {text=_("Cancelar"),callback=function() UIManager:close(first) end},
-                {text=_("Continuar"),is_enter_default=true,callback=function()
-                    local password=first:getInputText(); UIManager:close(first)
-                    if not password:match("^%d+$") or #password<4 then UIManager:show(InfoMessage:new{text=_("Use pelo menos 4 dígitos.")}); return end
-                    local second
-                    second=InputDialog:new{
-                        title=_("Confirmar senha"),input="",input_type="number",text_type="password",
-                        buttons={{
-                            {text=_("Cancelar"),callback=function() UIManager:close(second) end},
-                            {text=_("Salvar"),is_enter_default=true,callback=function()
-                                local confirmation=second:getInputText(); UIManager:close(second)
-                                if confirmation~=password then UIManager:show(InfoMessage:new{text=_("As senhas não coincidem.")}); return end
-                                self:saveNewPassword(password); UIManager:show(InfoMessage:new{text=_("Senha salva.")}); if on_saved then safe(on_saved) end
-                            end},
-                        }},
-                    }; UIManager:show(second); second:onShowKeyboard()
-                end},
-            }},
-        }; UIManager:show(first); first:onShowKeyboard()
+        first=InputDialog:new{title=self:hasPassword() and _("Nova senha numérica") or _("Criar senha numérica"),input="",input_type="number",text_type="password",buttons={{
+            {text=_("Cancelar"),callback=function() UIManager:close(first) end},
+            {text=_("Continuar"),is_enter_default=true,callback=function()
+                local password=first:getInputText(); UIManager:close(first)
+                if not password:match("^%d+$") or #password<4 then UIManager:show(InfoMessage:new{text=_("Use pelo menos 4 dígitos.")}); return end
+                local second
+                second=InputDialog:new{title=_("Confirmar senha"),input="",input_type="number",text_type="password",buttons={{
+                    {text=_("Cancelar"),callback=function() UIManager:close(second) end},
+                    {text=_("Salvar"),is_enter_default=true,callback=function()
+                        local confirmation=second:getInputText(); UIManager:close(second)
+                        if confirmation~=password then UIManager:show(InfoMessage:new{text=_("As senhas não coincidem.")}); return end
+                        self:saveNewPassword(password); UIManager:show(InfoMessage:new{text=_("Senha salva.")}); if on_saved then safe(on_saved) end
+                    end},
+                }}}; UIManager:show(second); second:onShowKeyboard()
+            end},
+        }}}; UIManager:show(first); first:onShowKeyboard()
     end
     if self:hasPassword() then self:askPassword(function(ok) if ok then create() end end,_("Senha atual")) else create() end
 end
@@ -199,8 +184,8 @@ function BookVault:isStatusVisible(status)
 end
 
 function BookVault:getCollections()
-    local ok, ReadCollection = pcall(require, "readcollection")
-    if not ok or not ReadCollection or type(ReadCollection.coll) ~= "table" then return {} end
+    local ok,ReadCollection=pcall(require,"readcollection")
+    if not ok or not ReadCollection or type(ReadCollection.coll)~="table" then return {} end
     local collections={}
     for name,coll in pairs(ReadCollection.coll) do
         if type(name)=="string" and type(coll)=="table" then
@@ -231,31 +216,19 @@ function BookVault:collectionItems(collection_name,include_private)
 end
 
 function BookVault:loadCoverModules()
-    local modules={}
-    local plugin_path="plugins/coverbrowser.koplugin"
-    if lfs.attributes(plugin_path,"mode")=="directory" then
-        package.path=plugin_path.."/?.lua;"..package.path
-    end
+    local modules={}; local plugin_path="plugins/coverbrowser.koplugin"
+    if lfs.attributes(plugin_path,"mode")=="directory" then package.path=plugin_path.."/?.lua;"..package.path end
     local ok,mod=pcall(require,"bookinfomanager"); if ok then modules.bookinfo=mod end
     ok,mod=pcall(require,"covermenu"); if ok then modules.covermenu=mod end
     ok,mod=pcall(require,"mosaicmenu"); if ok then modules.mosaicmenu=mod end
     return modules
 end
 
-function BookVault:makeTitleBar(title,subtitle,menu_ref)
-    local function search()
-        if menu_ref then self:showSearchDialog(menu_ref) end
-    end
-    local function sort()
-        if menu_ref then self:showSortDialog(menu_ref) end
-    end
+function BookVault:makeTitleBar(title,subtitle,search_callback,sort_callback,close_callback)
     local title_bar=TitleBar:new{
-        width=Screen:getWidth(),fullscreen=true,align="center",
-        title=title,subtitle=subtitle,subtitle_fullwidth=true,title_shrink_font_to_fit=true,
-        title_top_padding=Screen:scaleBySize(6),button_padding=Screen:scaleBySize(5),
-        left_icon="search",left_icon_tap_callback=search,left_icon_hold_callback=sort,
-        close_callback=function() if menu_ref then UIManager:close(menu_ref) end end,
-        show_parent=menu_ref,
+        width=Screen:getWidth(),fullscreen=true,align="center",title=title,subtitle=subtitle,subtitle_fullwidth=true,title_shrink_font_to_fit=true,
+        title_top_padding=Screen:scaleBySize(6),button_padding=Screen:scaleBySize(5),left_icon="search",
+        left_icon_tap_callback=search_callback,left_icon_hold_callback=sort_callback,close_callback=close_callback,
         with_bottom_line=true,bottom_line_h_padding=Screen:scaleBySize(18),
     }
     if not cat_icon or lfs.attributes(cat_icon,"mode")~="file" then return title_bar end
@@ -264,44 +237,35 @@ function BookVault:makeTitleBar(title,subtitle,menu_ref)
     local overlay=RightContainer:new{dimen=Geom:new{w=title_bar.dimen.w,h=title_bar.dimen.h},group}
     return OverlapGroup:new{dimen=title_bar.dimen:copy(),title_bar,overlay}
 end
-
 function BookVault:showSearchDialog(menu)
     local dialog
-    dialog=InputDialog:new{
-        title=_("Buscar na biblioteca"),input=menu._bookvault_search or "",
-        buttons={{
-            {text=_("Cancelar"),callback=function() UIManager:close(dialog) end},
-            {text=_("Buscar"),is_enter_default=true,callback=function()
-                local query=dialog:getInputText():lower(); UIManager:close(dialog)
-                local source=menu._bookvault_source_items or {}
-                local filtered={}
-                if query=="" then filtered=copyItems(source) else
-                    for _,item in ipairs(source) do
-                        if tostring(item.text or ""):lower():find(query,1,true) then filtered[#filtered+1]=item end
-                    end
-                end
-                menu._bookvault_search=query; menu.item_table=filtered; menu.page=1; menu:updateItems()
-            end},
-        }},
-    }
-    UIManager:show(dialog); dialog:onShowKeyboard()
+    dialog=InputDialog:new{title=_("Buscar na biblioteca"),input=menu._bookvault_search or "",buttons={{
+        {text=_("Cancelar"),callback=function() UIManager:close(dialog) end},
+        {text=_("Buscar"),is_enter_default=true,callback=function()
+            local query=dialog:getInputText():lower(); UIManager:close(dialog)
+            local source=menu._bookvault_source_items or {}; local filtered={}
+            if query=="" then filtered=copyItems(source) else
+                for _,item in ipairs(source) do if tostring(item.text or ""):lower():find(query,1,true) then filtered[#filtered+1]=item end end
+            end
+            menu._bookvault_search=query; menu.item_table=filtered; menu.page=1; menu:updateItems()
+        end},
+    }}}; UIManager:show(dialog); dialog:onShowKeyboard()
 end
 function BookVault:showSortDialog(menu)
-    local function apply(label,comparator)
-        local items=copyItems(menu._bookvault_source_items or menu.item_table)
-        table.sort(items,comparator); menu._bookvault_source_items=items; menu.item_table=copyItems(items); menu.page=1
+    local function apply(comparator)
+        local items=copyItems(menu._bookvault_source_items or menu.item_table); table.sort(items,comparator)
+        menu._bookvault_source_items=items; menu.item_table=copyItems(items); menu.page=1
         UIManager:close(self.sort_dialog); menu:updateItems()
     end
     local buttons={
-        {{text=_("Título · A–Z"),callback=function() apply("title",function(a,b) return ffiUtil.strcoll(a.text,b.text)<0 end) end}},
-        {{text=_("Mais recentes"),callback=function() apply("access",function(a,b) return (a.attr.access or 0)>(b.attr.access or 0) end)}},
-        {{text=_("Última modificação"),callback=function() apply("modified",function(a,b) return (a.attr.modification or 0)>(b.attr.modification or 0) end)}},
-        {{text=_("Tamanho"),callback=function() apply("size",function(a,b) return (a.attr.size or 0)<(b.attr.size or 0) end)}},
+        {{text=_("Título · A–Z"),callback=function() apply(function(a,b) return ffiUtil.strcoll(a.text,b.text)<0 end) end}},
+        {{text=_("Mais recentes"),callback=function() apply(function(a,b) return (a.attr.access or 0)>(b.attr.access or 0) end)}},
+        {{text=_("Última modificação"),callback=function() apply(function(a,b) return (a.attr.modification or 0)>(b.attr.modification or 0) end)}},
+        {{text=_("Tamanho"),callback=function() apply(function(a,b) return (a.attr.size or 0)<(b.attr.size or 0) end)}},
         {{text=_("Cancelar"),callback=function() UIManager:close(self.sort_dialog) end}},
     }
     self.sort_dialog=ButtonDialog:new{title=_("Ordenar"),title_align="center",buttons=buttons}; UIManager:show(self.sort_dialog)
 end
-
 function BookVault:prepareMosaic(menu)
     local modules=self:loadCoverModules()
     if not modules.bookinfo or not modules.covermenu or not modules.mosaicmenu then
@@ -313,48 +277,34 @@ function BookVault:prepareMosaic(menu)
     menu.nb_rows_portrait=bookinfo:getSetting("nb_rows_portrait") or 2
     menu.nb_cols_landscape=bookinfo:getSetting("nb_cols_landscape") or 4
     menu.nb_rows_landscape=bookinfo:getSetting("nb_rows_landscape") or 2
-    menu.display_mode_type="mosaic"
-    menu._do_cover_images=true
-    menu._do_center_partial_rows=true
-    menu.updateItems=modules.covermenu.updateItems
-    menu.onCloseWidget=modules.covermenu.onCloseWidget
-    menu._recalculateDimen=modules.mosaicmenu._recalculateDimen
-    menu._updateItemsBuildUI=modules.mosaicmenu._updateItemsBuildUI
+    menu.display_mode_type="mosaic"; menu._do_cover_images=true; menu._do_center_partial_rows=true
+    menu.updateItems=modules.covermenu.updateItems; menu.onCloseWidget=modules.covermenu.onCloseWidget
+    menu._recalculateDimen=modules.mosaicmenu._recalculateDimen; menu._updateItemsBuildUI=modules.mosaicmenu._updateItemsBuildUI
     return true
 end
-
 function BookVault:showBookMenu(title,items)
     safe(function()
         local menu
         local subtitle=_("SEUS MUNDOS, SEU REFÚGIO").."  ·  "..tostring(#items).." "..(#items==1 and _("livro") or _("livros"))
+        local function search() if menu then self:showSearchDialog(menu) end end
+        local function sort() if menu then self:showSortDialog(menu) end end
+        local function close() if menu then UIManager:close(menu) end end
+        local decorated=self:makeTitleBar(title,subtitle,search,sort,close)
         menu=BookList:new{
-            name="bookvault_library",
-            title=title,
-            subtitle=subtitle,
-            title_multilines=false,
-            item_table=items,
-            covers_fullscreen=true,
-            is_borderless=true,
-            is_popout=false,
-            title_bar_fm_style=true,
+            name="bookvault_library",title=title,subtitle=subtitle,title_multilines=false,item_table=items,covers_fullscreen=true,is_borderless=true,is_popout=false,
+            title_bar_fm_style=true,custom_title_bar=decorated,
             onMenuSelect=function(_,item) self:guard(item.path,function()
                 if lfs.attributes(item.path,"mode")~="file" then UIManager:show(InfoMessage:new{text=_("O arquivo não existe mais.")}); return end
                 ReaderUI:showReader(item.path)
             end) end,
         }
         menu._bookvault_source_items=copyItems(items)
-        local decorated=self:makeTitleBar(title,subtitle,menu)
-        menu.custom_title_bar=decorated
-        menu.title_bar=decorated
         self:prepareMosaic(menu)
-        UIManager:show(menu)
-        menu:updateItems()
+        UIManager:show(menu); menu:updateItems()
     end)
 end
-
 function BookVault:showCollection(collection_name)
-    local items=self:collectionItems(collection_name,self.unlocked)
-    self:showBookMenu(_("BookVault").." · "..collection_name,items)
+    self:showBookMenu(_("BookVault").." · "..collection_name,self:collectionItems(collection_name,self.unlocked))
 end
 function BookVault:showCollectionChooser()
     local collections=self:getCollections(); local buttons={}
@@ -373,8 +323,7 @@ function BookVault:showCollectionVisibilityChooser()
         for _,collection in ipairs(collections) do
             local checked=self:isCollectionVisible(collection.name)
             buttons[#buttons+1]={{text=(checked and "☑ " or "☐ ")..collection.name,callback=function()
-                self.settings.data.visible_collections[collection.name]=not checked; self:saveSettings()
-                UIManager:close(self.collection_visibility_dialog); rebuild()
+                self.settings.data.visible_collections[collection.name]=not checked; self:saveSettings(); UIManager:close(self.collection_visibility_dialog); rebuild()
             end}}
         end
         buttons[#buttons+1]={{text=_("Concluído"),callback=function() UIManager:close(self.collection_visibility_dialog) end}}
@@ -382,42 +331,26 @@ function BookVault:showCollectionVisibilityChooser()
     end
     rebuild()
 end
-
 function BookVault:showLibrary(status,include_private)
     safe(function()
-        local items={}
-        for _,item in ipairs(self:scanBooks(include_private)) do
-            if status=="all" or BookList.getBookStatus(item.path)==status then items[#items+1]=item end
-        end
+        local items={}; for _,item in ipairs(self:scanBooks(include_private)) do if status=="all" or BookList.getBookStatus(item.path)==status then items[#items+1]=item end end
         self:showBookMenu(_("BookVault").." · "..self:getStatusLabel(status),items)
     end)
 end
 function BookVault:showStatusChooser()
     self:loadSettings(); local buttons={}
-    for _,status in ipairs(STATUS) do if self:isStatusVisible(status.key) then
-        buttons[#buttons+1]={{text=status.label,callback=function() UIManager:close(self.status_dialog); self:showLibrary(status.key,self.unlocked) end}}
-    end end
-    local collections=self:getCollections()
-    for _,collection in ipairs(collections) do if self:isCollectionVisible(collection.name) then
-        buttons[#buttons+1]={{text="▸ "..collection.name,callback=function() UIManager:close(self.status_dialog); self:showCollection(collection.name) end}}
-    end end
-    if #buttons==0 then
-        self.settings.data.visible_statuses.all=true; self:saveSettings()
-        buttons={{{text=STATUS[1].label,callback=function() UIManager:close(self.status_dialog); self:showLibrary("all",self.unlocked) end}}}
-    end
+    for _,status in ipairs(STATUS) do if self:isStatusVisible(status.key) then buttons[#buttons+1]={{text=status.label,callback=function() UIManager:close(self.status_dialog); self:showLibrary(status.key,self.unlocked) end}} end end
+    for _,collection in ipairs(self:getCollections()) do if self:isCollectionVisible(collection.name) then buttons[#buttons+1]={{text="▸ "..collection.name,callback=function() UIManager:close(self.status_dialog); self:showCollection(collection.name) end}} end end
+    if #buttons==0 then self.settings.data.visible_statuses.all=true; self:saveSettings(); buttons={{{text=STATUS[1].label,callback=function() UIManager:close(self.status_dialog); self:showLibrary("all",self.unlocked) end}}} end
     self.status_dialog=ButtonDialog:new{title=_("BookVault"),title_align="center",buttons=buttons}; UIManager:show(self.status_dialog)
 end
 function BookVault:showStatusVisibilityChooser()
-    self:loadSettings(); local buttons={}
-    local function rebuild()
-        local visible=self.settings.data.visible_statuses; buttons={}
+    self:loadSettings(); local function rebuild()
+        local visible=self.settings.data.visible_statuses; local buttons={}
         for _,status in ipairs(STATUS) do
             local checked=visible[status.key]==true
             buttons[#buttons+1]={{text=(checked and "☑ " or "☐ ")..status.label,callback=function()
-                if visible[status.key] then
-                    local count=0; for _,item in ipairs(STATUS) do if visible[item.key] then count=count+1 end end
-                    if count<=1 then UIManager:show(InfoMessage:new{text=_("Mantenha pelo menos uma categoria visível.")}); return end
-                end
+                if visible[status.key] then local count=0; for _,item in ipairs(STATUS) do if visible[item.key] then count=count+1 end end; if count<=1 then UIManager:show(InfoMessage:new{text=_("Mantenha pelo menos uma categoria visível.")}); return end end
                 visible[status.key]=not visible[status.key]; self:saveSettings(); UIManager:close(self.status_visibility_dialog); rebuild()
             end}}
         end
@@ -427,22 +360,15 @@ function BookVault:showStatusVisibilityChooser()
     rebuild()
 end
 function BookVault:chooseRoot()
-    self:loadSettings(); UIManager:show(PathChooser:new{
-        path=self:getRoot() or G_reader_settings:readSetting("home_dir"),select_directory=true,select_file=false,
-        onConfirm=function(path) if path then self.settings.data.root=normalize(path); self:saveSettings(); UIManager:show(InfoMessage:new{text=_("Pasta da biblioteca salva.")}) end end,
-    })
+    self:loadSettings(); UIManager:show(PathChooser:new{path=self:getRoot() or G_reader_settings:readSetting("home_dir"),select_directory=true,select_file=false,onConfirm=function(path) if path then self.settings.data.root=normalize(path); self:saveSettings(); UIManager:show(InfoMessage:new{text=_("Pasta da biblioteca salva.")}) end end})
 end
 function BookVault:chooseManagedPath(private)
-    self:loadSettings(); UIManager:show(PathChooser:new{
-        path=self:getRoot() or G_reader_settings:readSetting("home_dir"),select_directory=true,select_file=false,
-        onConfirm=function(path) if not path then return end; local list=private and self.settings.data.private_paths or self.settings.data.protected_paths; addUnique(list,path); self:saveSettings(); UIManager:show(InfoMessage:new{text=private and _("Pasta tornada privada.") or _("Pasta protegida.")}) end,
-    })
+    self:loadSettings(); UIManager:show(PathChooser:new{path=self:getRoot() or G_reader_settings:readSetting("home_dir"),select_directory=true,select_file=false,onConfirm=function(path) if not path then return end; local list=private and self.settings.data.private_paths or self.settings.data.protected_paths; addUnique(list,path); self:saveSettings(); UIManager:show(InfoMessage:new{text=private and _("Pasta tornada privada.") or _("Pasta protegida.")}) end})
 end
 function BookVault:listManagedPaths(private)
     self:loadSettings(); local list=private and self.settings.data.private_paths or self.settings.data.protected_paths
     local function showList()
-        local buttons={}
-        for i,path in ipairs(list) do buttons[#buttons+1]={{text=path,callback=function() table.remove(list,i); self:saveSettings(); UIManager:close(self.path_dialog); showList() end}} end
+        local buttons={}; for i,path in ipairs(list) do buttons[#buttons+1]={{text=path,callback=function() table.remove(list,i); self:saveSettings(); UIManager:close(self.path_dialog); showList() end}} end
         buttons[#buttons+1]={{text=_("Cancelar"),callback=function() UIManager:close(self.path_dialog) end}}
         self.path_dialog=ButtonDialog:new{title=private and _("Conteúdo privado") or _("Pastas protegidas"),buttons=buttons}; UIManager:show(self.path_dialog)
     end
@@ -450,8 +376,7 @@ function BookVault:listManagedPaths(private)
 end
 function BookVault:togglePrivate()
     if self.unlocked then self.unlocked=false; self:showStatusChooser(); return end
-    if not self:hasPassword() then self:setPassword(function() self.unlocked=true; self:showStatusChooser() end)
-    else self:askPassword(function(ok) if ok then self.unlocked=true; self:showStatusChooser() end end,_("Revelar conteúdo")) end
+    if not self:hasPassword() then self:setPassword(function() self.unlocked=true; self:showStatusChooser() end) else self:askPassword(function(ok) if ok then self.unlocked=true; self:showStatusChooser() end end,_("Revelar conteúdo")) end
 end
 function BookVault:addToMainMenu(menu_items)
     menu_items.bookvault={text=_("BookVault"),sorting_hint="more_tools",sub_item_table={
