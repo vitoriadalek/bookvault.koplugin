@@ -1,5 +1,6 @@
 local ButtonDialog = require("ui/widget/buttondialog")
 local DataStorage = require("datastorage")
+local Dispatcher = require("dispatcher")
 local InfoMessage = require("ui/widget/infomessage")
 local InputDialog = require("ui/widget/inputdialog")
 local LuaSettings = require("luasettings")
@@ -390,8 +391,24 @@ function BookVault:addToMainMenu(menu_items)
     }
 end
 
-function BookVault:onBookVaultOpen()
+function BookVault:onDispatcherRegisterActions()
+    Dispatcher:registerAction("bookvault_open", {
+        category = "none",
+        event = "BookVaultOpen",
+        title = _("BookVault"),
+        general = true,
+    })
+end
+
+function BookVault:OpenBookVault()
     self:showStatusChooser()
+end
+
+function BookVault:onEvent(event)
+    if event and event.name == "BookVaultOpen" then
+        self:showStatusChooser()
+        return true
+    end
 end
 
 function BookVault:onSuspend()
@@ -403,8 +420,7 @@ function BookVault:onResume()
 end
 
 function BookVault:init()
-    -- Keep initialization deliberately small: a failure while loading a library
-    -- or optional UI component must never prevent the plugin from being listed.
+    self:onDispatcherRegisterActions()
     self:loadSettings()
     self.ui.menu:registerToMainMenu(self)
 end
