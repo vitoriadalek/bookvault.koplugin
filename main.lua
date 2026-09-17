@@ -316,11 +316,13 @@ function BookVault:sortBookVaultItems(menu,mode,direction)
     if not menu then return end
     self:loadSettings()
     local key=menu._bookvault_view_key
-    local directions=self.settings.data.sort_directions[key] or {}
+    local all_directions=self.settings.data.sort_directions
+    if type(all_directions)~="table" then all_directions={} ; self.settings.data.sort_directions=all_directions end
+    local directions=all_directions[key]
+    if type(directions)~="table" then directions={} ; all_directions[key]=directions end
     direction=direction or directions[mode] or ((mode=="title" or mode=="author") and "asc" or "desc")
     self.settings.data.sort_modes[key]=mode
     directions[mode]=direction
-    self.settings.data.sort_directions[key]=directions
     self:saveSettings()
     if mode=="custom" then self:showCustomOrderEditor(menu); return end
     local items=copyItems(menu._bookvault_filtered_items or menu._bookvault_source_items or menu.item_table or {})
@@ -586,9 +588,10 @@ function BookVault:makeBookMenu(name,title,items,view_key)
     menu.item_table=copyItems(menu._bookvault_source_items)
     self:loadSettings()
     local saved_sort=self.settings.data.sort_modes[menu._bookvault_view_key]
-    if saved_sort and saved_sort ~= "custom" then
-        local sd=self.settings.data.sort_directions[menu._bookvault_view_key] and self.settings.data.sort_directions[menu._bookvault_view_key][saved_sort]
-        self:sortBookVaultItems(menu,saved_sort,sd)
+    local saved_directions=self.settings.data.sort_directions
+    if saved_sort and saved_sort ~= "custom" and type(saved_directions)=="table" and type(saved_directions[menu._bookvault_view_key])=="table" then
+        local sd=saved_directions[menu._bookvault_view_key][saved_sort]
+        if sd=="asc" or sd=="desc" then menu._bookvault_saved_sort={mode=saved_sort,direction=sd} end
     end
     local ok_visual=self:prepareVisualMenu(menu,menu._bookvault_source_items)
     if not ok_visual then menu._bookvault_source_items=items; menu.item_table=items end

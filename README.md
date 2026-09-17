@@ -1,4 +1,4 @@
-# BookVault 2.5.1
+# BookVault 2.5.2
 
 Biblioteca visual para KOReader, feita para organizar uma biblioteca pessoal em um mosaico de capas reais sem substituir globalmente o FileManager, FileChooser, ReaderUI ou CoverBrowser.
 
