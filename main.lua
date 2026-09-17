@@ -49,6 +49,12 @@ local function addUnique(list, value)
     list[#list + 1] = value
 end
 
+local function copyItems(items)
+    local result = {}
+    for i, item in ipairs(items or {}) do result[i] = item end
+    return result
+end
+
 local function safe(fn)
     local ok, err = xpcall(fn, debug.traceback)
     if not ok then
@@ -66,6 +72,7 @@ function BookVault:loadSettings()
     end
     self.settings.data.protected_paths = self.settings.data.protected_paths or {}
     self.settings.data.private_paths = self.settings.data.private_paths or {}
+    self.settings.data.custom_orders = self.settings.data.custom_orders or {}
     if type(self.settings.data.visible_statuses) ~= "table" then
         self.settings.data.visible_statuses = { all=true, reading=true, abandoned=true, complete=true, new=true }
     end
@@ -227,15 +234,96 @@ function BookVault:collectionItems(collection_name,include_private)
     table.sort(items,function(a,b) return a.text:lower()<b.text:lower() end); return items
 end
 
+function BookVault:getCustomOrder(view_key)
+    self:loadSettings()
+    local order = self.settings.data.custom_orders[view_key]
+    return type(order) == "table" and order or {}
+end
+
+function BookVault:applyCustomOrder(items, view_key)
+    local order = self:getCustomOrder(view_key)
+    local sorted = copyItems(items)
+    table.sort(sorted, function(a,b)
+        local pa, pb = tonumber(order[a.path]), tonumber(order[b.path])
+        if pa and pb then
+            if pa == pb then return (a.text or ""):lower() < (b.text or ""):lower() end
+            return pa < pb
+        elseif pa then
+            return true
+        elseif pb then
+            return false
+        end
+        return (a.text or ""):lower() < (b.text or ""):lower()
+    end)
+    return sorted
+end
+
+function BookVault:saveCustomOrder(view_key, items)
+    self:loadSettings()
+    local order = {}
+    for i,item in ipairs(items or {}) do order[item.path] = i end
+    self.settings.data.custom_orders[view_key] = order
+    self:saveSettings()
+end
+
+function BookVault:moveCustomItem(view_key, items, index, target)
+    if index < 1 or index > #items or target < 1 or target > #items then return end
+    if index == target then return end
+    local item = table.remove(items, index)
+    table.insert(items, target, item)
+    self:saveCustomOrder(view_key, items)
+end
+
+function BookVault:showCustomOrderEditor(menu)
+    local view_key = menu._bookvault_view_key
+    local working = copyItems(menu._bookvault_source_items)
+    local dialog
+
+    local function rebuild()
+        if dialog then UIManager:close(dialog) end
+        local buttons = {}
+        for i,item in ipairs(working) do
+            local idx = i
+            local selected_item = item
+            local label = string.format("%02d. %s", idx, selected_item.text or selected_item.path or "")
+            buttons[#buttons+1] = {{text=label, callback=function()
+                local action
+                local function refresh()
+                    if action then UIManager:close(action) end
+                    self:saveCustomOrder(view_key, working)
+                    rebuild()
+                    menu.item_table = copyItems(working)
+                    menu.page = 1
+                    menu:updateItems()
+                end
+                action = ButtonDialog:new{title=_("Mover livro")..": "..(selected_item.text or ""), title_align="center", buttons={
+                    {{text=_("↑ Mover para cima"), enabled=idx>1, callback=function() self:moveCustomItem(view_key,working,idx,idx-1); refresh() end}},
+                    {{text=_("↓ Mover para baixo"), enabled=idx<#working, callback=function() self:moveCustomItem(view_key,working,idx,idx+1); refresh() end}},
+                    {{text=_("⤒ Mover para o início"), enabled=idx>1, callback=function() self:moveCustomItem(view_key,working,idx,1); refresh() end}},
+                    {{text=_("⤓ Mover para o fim"), enabled=idx<#working, callback=function() self:moveCustomItem(view_key,working,idx,#working); refresh() end}},
+                    {{text=_("Cancelar"), callback=function() UIManager:close(action) end}},
+                }}
+                UIManager:show(action)
+            end}}
+        end
+        buttons[#buttons+1]={{text=_("Concluído"), callback=function() self:saveCustomOrder(view_key,working); UIManager:close(dialog); menu.item_table=copyItems(working); menu.page=1; menu:updateItems() end}}
+        dialog=ButtonDialog:new{title=_("Ordem personalizada"),title_align="center",buttons=buttons}
+        UIManager:show(dialog)
+    end
+    rebuild()
+end
+
 function BookVault:sortBookVaultItems(menu,mode)
     if not menu then return end
-    local items=menu._bookvault_source_items or menu.item_table or {}; local sorted={}
-    for i,item in ipairs(items) do sorted[i]=item end
-    if mode=="recent" then table.sort(sorted,function(a,b) return (a.attr and a.attr.access or 0)>(b.attr and b.attr.access or 0) end)
-    elseif mode=="modified" then table.sort(sorted,function(a,b) return (a.attr and a.attr.modification or 0)>(b.attr and b.attr.modification or 0) end)
-    elseif mode=="size" then table.sort(sorted,function(a,b) return (a.attr and a.attr.size or 0)>(b.attr and b.attr.size or 0) end)
-    else table.sort(sorted,function(a,b) return (a.text or ""):lower()<(b.text or ""):lower() end) end
-    menu._bookvault_source_items=sorted; menu.item_table=sorted; menu.page=1
+    local items=copyItems(menu._bookvault_filtered_items or menu._bookvault_source_items or menu.item_table or {})
+    if mode=="recent" then table.sort(items,function(a,b) return (a.attr and a.attr.access or 0)>(b.attr and b.attr.access or 0) end)
+    elseif mode=="modified" then table.sort(items,function(a,b) return (a.attr and a.attr.modification or 0)>(b.attr and b.attr.modification or 0) end)
+    elseif mode=="size" then table.sort(items,function(a,b) return (a.attr and a.attr.size or 0)>(b.attr and b.attr.size or 0) end)
+    elseif mode=="author" then table.sort(items,function(a,b) return (a.author or ""):lower() < (b.author or ""):lower() end)
+    elseif mode=="pages" then table.sort(items,function(a,b) return (tonumber(a.pages) or 0) > (tonumber(b.pages) or 0) end)
+    else table.sort(items,function(a,b) return (a.text or ""):lower()<(b.text or ""):lower() end) end
+    menu.item_table=items; menu.page=1
+    if not menu._bookvault_filtered_items then menu._bookvault_source_items=items end
     if menu._bookvault_sort_dialog then UIManager:close(menu._bookvault_sort_dialog); menu._bookvault_sort_dialog=nil end
     menu:updateItems()
 end
@@ -270,54 +358,14 @@ end
 function BookVault:prepareVisualMenu(menu,source_items)
     menu._bookvault_source_items=source_items
     menu.sortBookVaultItems=function(instance,mode) self:sortBookVaultItems(instance,mode) end
-    local cat=self:ensureCatIcon()
-    if menu.title_bar then menu.title_bar:setLeftIcon(cat and "bookvault-cat" or "appbar.search") end
-
-    function menu:onLeftButtonTap()
-        local dialog
-        dialog=InputDialog:new{
-            title=_("Buscar na biblioteca"),input="",input_type="text",
-            buttons={{
-                {text=_("Cancelar"),callback=function() UIManager:close(dialog) end},
-                {text=_("Buscar"),is_enter_default=true,callback=function()
-                    local query=(dialog:getInputText() or ""):lower():gsub("^%s+",""):gsub("%s+$",""); UIManager:close(dialog)
-                    if query=="" then self.item_table=self._bookvault_source_items else
-                        local filtered={}
-                        for _,item in ipairs(self._bookvault_source_items) do if (item.text or ""):lower():find(query,1,true) then filtered[#filtered+1]=item end end
-                        self.item_table=filtered
-                    end
-                    self.page=1; self:updateItems()
-                end},
-            }},
-        }
-        UIManager:show(dialog); dialog:onShowKeyboard()
-    end
-    function menu:onLeftButtonHold()
-        local buttons={
-            {{text=_("Título"),callback=function() self:sortBookVaultItems("title") end}},
-            {{text=_("Mais recentes"),callback=function() self:sortBookVaultItems("recent") end}},
-            {{text=_("Modificados recentemente"),callback=function() self:sortBookVaultItems("modified") end}},
-            {{text=_("Tamanho"),callback=function() self:sortBookVaultItems("size") end}},
-            {{text=_("Cancelar"),callback=function() UIManager:close(self._bookvault_sort_dialog) end}},
-        }
-        self._bookvault_sort_dialog=ButtonDialog:new{title=_("Ordenar livros"),title_align="center",buttons=buttons}; UIManager:show(self._bookvault_sort_dialog)
-    end
-
     local BookInfoManager,CoverMenu,MosaicMenu=self:loadVisualModules()
     if not BookInfoManager then return false end
-
-    local ok_settings = pcall(function()
-        menu.nb_cols_portrait=BookInfoManager:getSetting("nb_cols_portrait") or 3
-        menu.nb_rows_portrait=BookInfoManager:getSetting("nb_rows_portrait") or 3
-        menu.nb_cols_landscape=BookInfoManager:getSetting("nb_cols_landscape") or 4
-        menu.nb_rows_landscape=BookInfoManager:getSetting("nb_rows_landscape") or 2
-        menu.files_per_page=BookInfoManager:getSetting("files_per_page")
-    end)
-    if not ok_settings then return false end
-
+    menu.nb_cols_portrait=BookInfoManager:getSetting("nb_cols_portrait") or 3
+    menu.nb_rows_portrait=BookInfoManager:getSetting("nb_rows_portrait") or 3
+    menu.nb_cols_landscape=BookInfoManager:getSetting("nb_cols_landscape") or 4
+    menu.nb_rows_landscape=BookInfoManager:getSetting("nb_rows_landscape") or 2
+    menu.files_per_page=BookInfoManager:getSetting("files_per_page")
     menu.display_mode_type="mosaic"
-    -- Keep BookList:getBookInfo(): MosaicMenu uses it for reading status/progress.
-    -- CoverBrowser's BookInfoManager is used separately by MosaicMenuItem for covers.
     menu.updateItems=CoverMenu.updateItems
     menu.onCloseWidget=CoverMenu.onCloseWidget
     menu._recalculateDimen=MosaicMenu._recalculateDimen
@@ -329,59 +377,73 @@ function BookVault:prepareVisualMenu(menu,source_items)
     return true
 end
 
-function BookVault:makeBookMenu(name,title,items)
-    local menu=BookList:new{
+function BookVault:makeBookMenu(name,title,items,view_key)
+    local menu
+    local cat=self:ensureCatIcon()
+    menu=BookList:new{
         name=name,title=title,item_table=items,covers_fullscreen=true,
+        title_bar_left_icon="appbar.search",
+        onLeftButtonTap=function(this)
+            local dialog
+            dialog=InputDialog:new{
+                title=_("Buscar livros"),input="",input_type="text",
+                buttons={{
+                    {text=_("Cancelar"),callback=function() UIManager:close(dialog) end},
+                    {text=_("Buscar"),is_enter_default=true,callback=function()
+                        local query=(dialog:getInputText() or ""):lower():gsub("^%s+",""):gsub("%s+$",""); UIManager:close(dialog)
+                        local filtered={}
+                        if query=="" then filtered=copyItems(this._bookvault_source_items)
+                        else
+                            for _,item in ipairs(this._bookvault_source_items or {}) do
+                                local text=(item.text or ""):lower()
+                                if text:find(query,1,true) then filtered[#filtered+1]=item end
+                            end
+                        end
+                        this._bookvault_filtered_items=filtered
+                        this.item_table=filtered
+                        this.page=1
+                        this:updateItems()
+                    end},
+                }},
+            }
+            UIManager:show(dialog); dialog:onShowKeyboard()
+        end,
+        onLeftButtonHold=function(this)
+            local buttons={
+                {{text=_("Título"),callback=function() self:sortBookVaultItems(this,"title") end}},
+                {{text=_("Autor"),callback=function() self:sortBookVaultItems(this,"author") end}},
+                {{text=_("Mais recentes"),callback=function() self:sortBookVaultItems(this,"recent") end}},
+                {{text=_("Modificados recentemente"),callback=function() self:sortBookVaultItems(this,"modified") end}},
+                {{text=_("Tamanho"),callback=function() self:sortBookVaultItems(this,"size") end}},
+                {{text=_("Mais páginas"),callback=function() self:sortBookVaultItems(this,"pages") end}},
+                {{text=_("Ordem personalizada"),callback=function() UIManager:close(this._bookvault_sort_dialog); self:showCustomOrderEditor(this) end}},
+                {{text=_("Cancelar"),callback=function() UIManager:close(this._bookvault_sort_dialog) end}},
+            }
+            this._bookvault_sort_dialog=ButtonDialog:new{title=_("Ordenar livros"),title_align="center",buttons=buttons}; UIManager:show(this._bookvault_sort_dialog)
+        end,
         onMenuSelect=function(_,item) self:guard(item.path,function()
             if lfs.attributes(item.path,"mode")~="file" then UIManager:show(InfoMessage:new{text=_("O arquivo não existe mais.")}); return end
             ReaderUI:showReader(item.path)
         end) end,
     }
-
-    -- Keep a native BookList as the hard fallback. The visual layer is only
-    -- enabled after its dependencies and first redraw have succeeded.
-    local visual_ok = false
-    local original_update = menu.updateItems
-    local original_close = menu.onCloseWidget
-    local original_recalc = menu._recalculateDimen
-    local original_build = menu._updateItemsBuildUI
-    local original_display_mode = menu.display_mode_type
-    local original_do_cover_images = menu._do_cover_images
-    local original_do_hint_opened = menu._do_hint_opened
-    local original_center_rows = menu._do_center_partial_rows
-
-    local prepared = false
-    local ok_prepare = pcall(function()
-        prepared = self:prepareVisualMenu(menu,items)
-    end)
-
-    if ok_prepare and prepared then
-        local ok_update = pcall(function() menu:updateItems() end)
-        visual_ok = ok_update
-    end
-
-    if not visual_ok then
-        menu.updateItems = original_update
-        menu.onCloseWidget = original_close
-        menu._recalculateDimen = original_recalc
-        menu._updateItemsBuildUI = original_build
-        menu.display_mode_type = original_display_mode
-        menu._do_cover_images = original_do_cover_images
-        menu._do_hint_opened = original_do_hint_opened
-        menu._do_center_partial_rows = original_center_rows
-        menu._bookvault_visual = nil
-        logger.warn("BookVault: visual mosaic failed; falling back to native BookList")
-    end
-
+    menu._bookvault_view_key=view_key or name
+    menu._bookvault_source_items=self:applyCustomOrder(items,menu._bookvault_view_key)
+    menu.item_table=copyItems(menu._bookvault_source_items)
     self._active_visual_menu=menu
-    return menu, visual_ok
+    local ok_visual=self:prepareVisualMenu(menu,menu._bookvault_source_items)
+    if not ok_visual then
+        menu._bookvault_source_items=items
+        menu.item_table=items
+    end
+    return menu
 end
 
 function BookVault:showCollection(collection_name)
     safe(function()
-        local menu,visual=self:makeBookMenu("bookvault_collection_"..collection_name,_("BookVault").." · "..collection_name,self:collectionItems(collection_name,self.unlocked))
-        UIManager:show(menu)
-        if not visual then menu:updateItems() end
+        local key="collection:"..collection_name
+        local items=self:collectionItems(collection_name,self.unlocked)
+        local menu=self:makeBookMenu("bookvault_collection_"..collection_name,_("BookVault").." · "..collection_name,items,key)
+        UIManager:show(menu); menu:updateItems()
     end)
 end
 function BookVault:showCollectionChooser()
@@ -414,9 +476,9 @@ function BookVault:showLibrary(status,include_private)
     safe(function()
         local items={}
         for _,item in ipairs(self:scanBooks(include_private)) do if status=="all" or BookList.getBookStatus(item.path)==status then items[#items+1]=item end end
-        local menu,visual=self:makeBookMenu("bookvault_library",_("BookVault").." · "..self:getStatusLabel(status),items)
-        UIManager:show(menu)
-        if not visual then menu:updateItems() end
+        local key="status:"..status
+        local menu=self:makeBookMenu("bookvault_library_"..status,_("BookVault").." · "..self:getStatusLabel(status),items,key)
+        UIManager:show(menu); menu:updateItems()
     end)
 end
 function BookVault:showStatusChooser()
