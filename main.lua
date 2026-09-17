@@ -9,9 +9,11 @@ local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local BookList = require("ui/widget/booklist")
 local DocumentRegistry = require("document/documentregistry")
+local BookInfoManager = require("bookinfomanager")
 local ffiUtil = require("ffi/util")
 local lfs = require("libs/libkoreader-lfs")
 local sha2 = require("ffi/sha2")
+local logger = require("logger")
 local _ = require("gettext")
 
 local BookVault = WidgetContainer:extend{
@@ -21,6 +23,7 @@ local BookVault = WidgetContainer:extend{
     settings_file = DataStorage:getSettingsDir() .. "/bookvault.lua",
     settings = nil,
     unlocked = false,
+    security_patched = false,
 }
 
 local STATUS = {
@@ -121,7 +124,7 @@ function BookVault:saveNewPassword(password)
     self:saveSettings()
 end
 
-function BookVault:setPassword()
+function BookVault:setPassword(on_saved)
     local function create()
         local first
         first = InputDialog:new{
@@ -155,6 +158,7 @@ function BookVault:setPassword()
                                 end
                                 self:saveNewPassword(password)
                                 UIManager:show(InfoMessage:new{ text = _("Senha salva.") })
+                                if on_saved then on_saved() end
                             end },
                         }},
                     }
@@ -210,30 +214,80 @@ function BookVault:scanBooks(include_private)
     local root = self:getRoot()
     if not root then return {} end
     local result, visited = {}, {}
-    local function scan(dir)
-        dir = normalize(dir)
-        if visited[dir] then return end
-        visited[dir] = true
-        local ok, iter, dir_obj = pcall(lfs.dir, dir)
-        if not ok or not iter or not dir_obj then return end
-        for name in iter, dir_obj do
-            if name ~= "." and name ~= ".." then
-                local path = dir .. "/" .. name
-                local attr = lfs.attributes(path)
-                if attr and attr.mode == "directory" then
-                    if include_private or not self:isPrivate(path) then scan(path) end
-                elseif attr and attr.mode == "file" then
-                    local provider_ok = pcall(DocumentRegistry.hasProvider, DocumentRegistry, path)
-                    if provider_ok and DocumentRegistry:hasProvider(path) and (include_private or not self:isPrivate(path)) then
-                        result[#result + 1] = { path = path, filepath = path, text = name, attr = attr }
+    local pending = { root }
+    local index = 1
+    while index <= #pending do
+        local dir = normalize(pending[index])
+        index = index + 1
+        if not visited[dir] then
+            visited[dir] = true
+            local ok, iter, dir_obj = pcall(lfs.dir, dir)
+            if ok and iter and dir_obj then
+                for name in iter, dir_obj do
+                    if name ~= "." and name ~= ".." then
+                        local path = dir .. "/" .. name
+                        local attr = lfs.attributes(path)
+                        if attr and attr.mode == "directory" then
+                            if include_private or not self:isPrivate(path) then
+                                pending[#pending + 1] = path
+                            end
+                        elseif attr and attr.mode == "file" then
+                            if include_private or not self:isPrivate(path) then
+                                local provider_ok, has_provider = pcall(DocumentRegistry.hasProvider, DocumentRegistry, path)
+                                if provider_ok and has_provider then
+                                    result[#result + 1] = {
+                                        path = path,
+                                        filepath = path,
+                                        text = name,
+                                        attr = attr,
+                                        is_file = true,
+                                    }
+                                end
+                            end
+                        end
                     end
                 end
             end
         end
     end
-    scan(root)
     table.sort(result, function(a, b) return a.text:lower() < b.text:lower() end)
     return result
+end
+
+function BookVault:loadCoverBrowserModules()
+    if self.cover_modules then return self.cover_modules end
+    local old_path = package.path
+    local plugin_dir = DataStorage:getDataDir() .. "/plugins/coverbrowser.koplugin"
+    package.path = plugin_dir .. "/?.lua;" .. old_path
+    local ok_cover, CoverMenu = pcall(require, "covermenu")
+    local ok_mosaic, MosaicMenu = pcall(require, "mosaicmenu")
+    package.path = old_path
+    if ok_cover and ok_mosaic then
+        self.cover_modules = { CoverMenu = CoverMenu, MosaicMenu = MosaicMenu }
+    end
+    return self.cover_modules
+end
+
+function BookVault:configureCoverMosaic(menu)
+    local modules = self:loadCoverBrowserModules()
+    if not modules then return false end
+    menu.nb_cols_portrait = BookInfoManager:getSetting("nb_cols_portrait") or 3
+    menu.nb_rows_portrait = BookInfoManager:getSetting("nb_rows_portrait") or 3
+    menu.nb_cols_landscape = BookInfoManager:getSetting("nb_cols_landscape") or 4
+    menu.nb_rows_landscape = BookInfoManager:getSetting("nb_rows_landscape") or 2
+    menu.files_per_page = BookInfoManager:getSetting("files_per_page")
+    menu.display_mode_type = "mosaic"
+    menu._do_cover_images = true
+    menu._do_center_partial_rows = true
+    menu._do_hint_opened = true
+    menu.getBookInfo = function(_, file)
+        return BookInfoManager:getBookInfo(file)
+    end
+    menu.updateItems = modules.CoverMenu.updateItems
+    menu.onCloseWidget = modules.CoverMenu.onCloseWidget
+    menu._recalculateDimen = modules.MosaicMenu._recalculateDimen
+    menu._updateItemsBuildUI = modules.MosaicMenu._updateItemsBuildUI
+    return true
 end
 
 function BookVault:showStatusChooser()
@@ -264,6 +318,7 @@ function BookVault:showLibrary(status, include_private)
     end
     local menu
     menu = BookList:new{
+        name = "bookvault",
         title = _("BookVault") .. " · " .. (function()
             for _, s in ipairs(STATUS) do if s.key == status then return s.label end end
             return _("Todos")
@@ -285,6 +340,9 @@ function BookVault:showLibrary(status, include_private)
             end)
         end,
     }
+    if not self:configureCoverMosaic(menu) then
+        menu.covers_fullscreen = true
+    end
     UIManager:show(menu)
     menu:updateItems()
 end
@@ -314,7 +372,7 @@ function BookVault:chooseManagedPath(private)
             addUnique(list, path)
             self:saveSettings()
             UIManager:show(InfoMessage:new{
-                text = private and _("Pasta adicionada ao conteúdo privado.") or _("Pasta protegida."),
+                text = private and _("Pasta tornada privada.") or _("Pasta protegida."),
             })
         end,
     })
@@ -357,7 +415,10 @@ function BookVault:togglePrivate()
         return
     end
     if not self:hasPassword() then
-        self:setPassword()
+        self:setPassword(function()
+            self.unlocked = true
+            self:showStatusChooser()
+        end)
         return
     end
     self:askPassword(function(ok)
@@ -365,7 +426,90 @@ function BookVault:togglePrivate()
             self.unlocked = true
             self:showStatusChooser()
         end
-    end, _("Acessar conteúdo privado"))
+    end, _("Revelar conteúdo"))
+end
+
+function BookVault:patchSecurity()
+    if self.security_patched then return end
+    local ok, err = pcall(function()
+        local FileChooser = require("ui/widget/filechooser")
+        local FileManager = require("apps/filemanager/filemanager")
+        local ReaderUI = require("apps/reader/readerui")
+
+        local original_changeToPath = FileChooser.changeToPath
+        FileChooser.changeToPath = function(chooser, path, focused_path)
+            if self:isProtected(chooser.path) and not self:isProtected(path) then
+                self.unlocked = false
+            end
+            if self:needsUnlock(path) and not self.unlocked then
+                self:guard(path, function()
+                    original_changeToPath(chooser, path, focused_path)
+                end)
+                return
+            end
+            return original_changeToPath(chooser, path, focused_path)
+        end
+
+        local original_genItemTableFromPath = FileChooser.genItemTableFromPath
+        FileChooser.genItemTableFromPath = function(chooser, path)
+            local items = original_genItemTableFromPath(chooser, path)
+            if chooser.is_fm and not self.unlocked then
+                local filtered = {}
+                for _, item in ipairs(items) do
+                    if not self:isPrivate(item.path) then
+                        filtered[#filtered + 1] = item
+                    end
+                end
+                return filtered
+            end
+            return items
+        end
+
+        local original_setupLayout = FileManager.setupLayout
+        FileManager.setupLayout = function(filemanager, ...)
+            local result = original_setupLayout(filemanager, ...)
+            local chooser = filemanager.file_chooser
+            if chooser and not chooser._bookvault_hold_patched then
+                local original_onFileHold = chooser.onFileHold
+                chooser.onFileHold = function(current_chooser, item)
+                    if self:needsUnlock(item.path) and not self.unlocked then
+                        self:guard(item.path, function() original_onFileHold(current_chooser, item) end)
+                        return true
+                    end
+                    return original_onFileHold(current_chooser, item)
+                end
+                chooser._bookvault_hold_patched = true
+            end
+            return result
+        end
+
+        local original_openFile = FileManager.openFile
+        FileManager.openFile = function(filemanager, file, provider, doc_caller_callback, aux_caller_callback, after_open_callback)
+            if self:needsUnlock(file) and not self.unlocked then
+                self:guard(file, function()
+                    original_openFile(filemanager, file, provider, doc_caller_callback, aux_caller_callback, after_open_callback)
+                end)
+                return
+            end
+            return original_openFile(filemanager, file, provider, doc_caller_callback, aux_caller_callback, after_open_callback)
+        end
+
+        local original_showReader = ReaderUI.showReader
+        ReaderUI.showReader = function(reader, file, provider, seamless, is_provider_forced, after_open_callback)
+            if self:needsUnlock(file) and not self.unlocked then
+                self:guard(file, function()
+                    original_showReader(reader, file, provider, seamless, is_provider_forced, after_open_callback)
+                end)
+                return
+            end
+            return original_showReader(reader, file, provider, seamless, is_provider_forced, after_open_callback)
+        end
+
+        self.security_patched = true
+    end)
+    if not ok then
+        logger.err("BookVault: security patch failed:", err)
+    end
 end
 
 function BookVault:addToMainMenu(menu_items)
@@ -376,16 +520,34 @@ function BookVault:addToMainMenu(menu_items)
             { text = _("Abrir biblioteca"), callback = function() self:showStatusChooser() end },
             {
                 text_func = function()
-                    return self.unlocked and "◉ " .. _("Ocultar conteúdo") or "◉ " .. _("Acessar conteúdo")
+                    return self.unlocked and "◉ " .. _("Ocultar conteúdo") or "◉ " .. _("Revelar conteúdo")
                 end,
                 callback = function() self:togglePrivate() end,
             },
-            { text = _("Configurar pasta da biblioteca"), callback = function() self:chooseRoot() end },
-            { text = _("Criar/alterar senha"), callback = function() self:setPassword() end },
-            { text = _("Proteger uma pasta"), callback = function() self:chooseManagedPath(false) end },
-            { text = _("Gerenciar pastas protegidas"), callback = function() self:listManagedPaths(false) end },
-            { text = _("Adicionar pasta ao conteúdo privado"), callback = function() self:chooseManagedPath(true) end },
-            { text = _("Gerenciar conteúdo privado"), callback = function() self:listManagedPaths(true) end },
+            {
+                text = _("Biblioteca"),
+                separator = true,
+                sub_item_table = {
+                    { text = _("Configurar pasta da biblioteca"), callback = function() self:chooseRoot() end },
+                },
+            },
+            {
+                text = _("Segurança"),
+                separator = true,
+                sub_item_table = {
+                    { text = _("Criar/alterar senha"), callback = function() self:setPassword() end },
+                    { text = _("Proteger uma pasta"), callback = function() self:chooseManagedPath(false) end },
+                    { text = _("Gerenciar pastas protegidas"), callback = function() self:listManagedPaths(false) end },
+                },
+            },
+            {
+                text = _("Privacidade"),
+                separator = true,
+                sub_item_table = {
+                    { text = _("Tornar uma pasta privada"), callback = function() self:chooseManagedPath(true) end },
+                    { text = _("Gerenciar conteúdo privado"), callback = function() self:listManagedPaths(true) end },
+                },
+            },
         },
     }
 end
@@ -422,6 +584,7 @@ function BookVault:init()
     self:onDispatcherRegisterActions()
     self:loadSettings()
     self.ui.menu:registerToMainMenu(self)
+    UIManager:nextTick(function() self:patchSecurity() end)
 end
 
 return BookVault
