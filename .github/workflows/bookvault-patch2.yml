@@ -1,0 +1,76 @@
+name: BookVault patch runner
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch files
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path('main.lua')
+          s = p.read_text(encoding='utf-8')
+          if 'function BookVault:decorateTitleBar' not in s:
+              s = s.replace('local ButtonDialog = require("ui/widget/buttondialog")\n', 'local ButtonDialog = require("ui/widget/buttondialog")\nlocal Geom = require("ui/geometry")\nlocal HorizontalGroup = require("ui/widget/horizontalgroup")\nlocal HorizontalSpan = require("ui/widget/horizontalspan")\nlocal IconButton = require("ui/widget/iconbutton")\nlocal IconWidget = require("ui/widget/iconwidget")\nlocal RightContainer = require("ui/widget/container/rightcontainer")\n', 1)
+          s = s.replace('local TitleBar = require("ui/widget/titlebar")\n', '', 1)
+
+          s = re.sub(r'function BookVault:ensureBookVaultIcons\(\).*?\nend\n\nfunction BookVault:loadBookInfoManager', '''function BookVault:ensureBookVaultIcons()\n    local icon_dir=DataStorage:getDataDir().."/icons"\n    if lfs.attributes(icon_dir,"mode")~="directory" then pcall(lfs.mkdir,icon_dir) end\n    if lfs.attributes(icon_dir,"mode")~="directory" then return false end\n    local required={"bookvault-search.png","bookvault-sort.png","bookvault-sort-cat.png","bookvault-cat.png","bookvault-moon.png"}\n    for _,name in ipairs(required) do\n        if lfs.attributes(icon_dir.."/"..name,"mode")~="file" then return false end\n    end\n    return true\nend\n\nfunction BookVault:loadBookInfoManager''', s, count=1, flags=re.S)
+
+          marker = 'function BookVault:makeBookMenu(name,title,items,view_key)'
+          start = s.index(marker)
+          endpos = s.index('\nfunction BookVault:showCollection(collection_name)', start)
+          new_func = '''function BookVault:decorateTitleBar(menu, appearance, search_cb, sort_cb)\n    local bar=menu and menu.title_bar\n    if not bar then return end\n    local old_right=bar.right_button\n    if old_right then\n        for i=1,#bar do\n            if bar[i]==old_right then table.remove(bar,i); break end\n        end\n        pcall(old_right.free,old_right,true)\n        bar.right_button=nil\n        bar.has_right_icon=false\n    end\n    if bar._bookvault_action_group then\n        pcall(bar._bookvault_action_group.free,bar._bookvault_action_group,true)\n        bar._bookvault_action_group=nil\n    end\n    local icon_size=Screen:scaleBySize(25)\n    local button_padding=Screen:scaleBySize(5)\n    local gap=Screen:scaleBySize(2)\n    local group=HorizontalGroup:new{align="center"}\n    table.insert(group,IconButton:new{icon="bookvault-search",width=icon_size,height=icon_size,padding=button_padding,callback=search_cb,show_parent=menu})\n    if appearance.show_moon then\n        table.insert(group,HorizontalSpan:new{width=gap})\n        table.insert(group,IconWidget:new{icon="bookvault-moon",width=Screen:scaleBySize(18),height=Screen:scaleBySize(18),dim=true})\n    end\n    table.insert(group,HorizontalSpan:new{width=gap})\n    table.insert(group,IconButton:new{icon=appearance.show_cat and "bookvault-sort-cat" or "bookvault-sort",width=icon_size,height=icon_size,padding=button_padding,callback=sort_cb,show_parent=menu})\n    local width=bar.width or Screen:getWidth()\n    local height=(bar.getHeight and bar:getHeight()) or Screen:scaleBySize(44)\n    local right=RightContainer:new{dimen=Geom:new{x=0,y=0,w=width,h=height},group}\n    table.insert(bar,right)\n    bar._bookvault_action_group=right\n    pcall(function() UIManager:setDirty(menu,"ui",bar.dimen) end)\nend\n\nfunction BookVault:makeBookMenu(name,title,items,view_key)\n    local menu\n    self:ensureBookVaultIcons()\n    self:loadSettings()\n    local appearance=self.settings.data.appearance\n    if appearance.show_cat == nil then appearance.show_cat=true end\n    if appearance.show_moon == nil then appearance.show_moon=true end\n    local function search_cb() self:showSearchDialog(menu) end\n    local function sort_cb() self:showSortDialog(menu) end\n    menu=BookList:new{\n        name=name,title=title,item_table=items,covers_fullscreen=true,\n        onMenuSelect=function(_,item) self:guard(item.path,function()\n            if lfs.attributes(item.path,"mode")~="file" then UIManager:show(InfoMessage:new{text=_("O arquivo não existe mais.")}); return end\n            ReaderUI:showReader(item.path)\n        end) end,\n    }\n    self._last_menu=menu\n    menu._bookvault_view_key=view_key or name\n    menu._bookvault_source_items=self:applyCustomOrder(items,menu._bookvault_view_key)\n    menu.item_table=copyItems(menu._bookvault_source_items)\n    self:loadSettings()\n    local saved_sort=self.settings.data.sort_modes[menu._bookvault_view_key]\n    if saved_sort and saved_sort ~= "custom" then self:sortBookVaultItems(menu,saved_sort) end\n    local ok_visual=self:prepareVisualMenu(menu,menu._bookvault_source_items)\n    if not ok_visual then menu._bookvault_source_items=items; menu.item_table=items end\n    self:decorateTitleBar(menu,appearance,search_cb,sort_cb)\n    return menu\nend\n'''
+          s = s[:start] + new_func + s[endpos:]
+
+          old='menu.no_refresh_covers=true; menu:updateItems(); menu.no_refresh_covers=nil'
+          new='menu.no_refresh_covers=true\n                if menu._recalculateDimen then pcall(menu._recalculateDimen,menu) end\n                menu:updateItems()\n                menu.no_refresh_covers=nil'
+          s=s.replace(old,new,1)
+          p.write_text(s,encoding='utf-8')
+
+          b=Path('bookvault_icons_bootstrap.lua')
+          bs=b.read_text(encoding='utf-8').replace('["bookvault-search.png"] = "bookvault-search-png.png",','["bookvault-search.png"] = "bookvault-search.png",')
+          b.write_text(bs,encoding='utf-8')
+
+          m=Path('_meta.lua')
+          ms=m.read_text(encoding='utf-8').replace('version = "2.4.1"','version = "2.5.0"')
+          m.write_text(ms,encoding='utf-8')
+
+          # Remove legacy SVG assets; PNGs are now the only BookVault identity assets.
+          import subprocess
+          subprocess.run(['git','rm','-f','bookvault-cat.svg','icons/bookvault-cat.svg','icons/bookvault-sort.svg','icons/bookvault-sort-cat.svg'],check=False)
+          PY
+      - name: Validate
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          required=['icons/bookvault-search.png','icons/bookvault-sort.png','icons/bookvault-sort-cat.png','icons/bookvault-cat.png','icons/bookvault-moon.png']
+          assert all(Path(x).is_file() and Path(x).stat().st_size > 0 for x in required)
+          main=Path('main.lua').read_text(encoding='utf-8')
+          assert 'function BookVault:decorateTitleBar' in main
+          assert 'custom_title_bar=' not in main
+          boot=Path('bookvault_icons_bootstrap.lua').read_text(encoding='utf-8')
+          assert 'bookvault-search-png.png' not in boot
+          print('Static validation OK')
+          PY
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq luajit
+          luajit -b main.lua /tmp/bookvault-main.ljbc
+          luajit -b bookvault_icons_bootstrap.lua /tmp/bookvault-bootstrap.ljbc
+          git diff --check
+      - name: Commit
+        run: |
+          git config user.name "Vitoria"
+          git config user.email "166748655+vitoriadalek@users.noreply.github.com"
+          git add -A
+          git commit -m "Finalize BookVault 2.5.0 UI compatibility" || exit 0
+          git push origin HEAD:main
