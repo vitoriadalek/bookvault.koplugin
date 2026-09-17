@@ -217,13 +217,12 @@ end
 
 function BookVault:loadCoverModules()
     local modules={}; local plugin_path="plugins/coverbrowser.koplugin"
-    if lfs.attributes(plugin_path,"mode")=="directory" then package.path=plugin_path.."/?.lua;"..package.path end
+    if lfs.attributes(plugin_path,"mode")=="directory" and not package.path:find(plugin_path,1,true) then package.path=plugin_path.."/?.lua;"..package.path end
     local ok,mod=pcall(require,"bookinfomanager"); if ok then modules.bookinfo=mod end
     ok,mod=pcall(require,"covermenu"); if ok then modules.covermenu=mod end
     ok,mod=pcall(require,"mosaicmenu"); if ok then modules.mosaicmenu=mod end
     return modules
 end
-
 function BookVault:makeTitleBar(title,subtitle,search_callback,sort_callback,close_callback)
     local title_bar=TitleBar:new{
         width=Screen:getWidth(),fullscreen=true,align="center",title=title,subtitle=subtitle,subtitle_fullwidth=true,title_shrink_font_to_fit=true,
@@ -258,7 +257,7 @@ function BookVault:showSortDialog(menu)
         UIManager:close(self.sort_dialog); menu:updateItems()
     end
     local buttons={
-        {{text=_("Título · A–Z"),callback=function() apply(function(a,b) return ffiUtil.strcoll(a.text,b.text)<0 end) end}},
+        {{text=_("Título · A–Z"),callback=function() apply(function(a,b) return a.text:lower()<b.text:lower() end) end}},
         {{text=_("Mais recentes"),callback=function() apply(function(a,b) return (a.attr.access or 0)>(b.attr.access or 0) end)}},
         {{text=_("Última modificação"),callback=function() apply(function(a,b) return (a.attr.modification or 0)>(b.attr.modification or 0) end)}},
         {{text=_("Tamanho"),callback=function() apply(function(a,b) return (a.attr.size or 0)<(b.attr.size or 0) end)}},
