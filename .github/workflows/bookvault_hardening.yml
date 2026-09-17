@@ -1,0 +1,147 @@
+name: BookVault hardening
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    if: "!contains(github.event.head_commit.message, '[bookvault-hardening]')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Harden fresh-install icons and metadata
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          main = Path('main.lua')
+          s = main.read_text(encoding='utf-8')
+
+          old_prefix = '''local ButtonDialog = require("ui/widget/buttondialog")
+          local DataStorage = require("datastorage")
+          local DoubleSpinWidget = require("ui/widget/doublespinwidget")
+          local InfoMessage = require("ui/widget/infomessage")
+          local InputDialog = require("ui/widget/inputdialog")
+          local LuaSettings = require("luasettings")
+          local PathChooser = require("ui/widget/pathchooser")
+          local ReaderUI = require("apps/reader/readerui")
+          local TitleBar = require("ui/widget/titlebar")
+          local UIManager = require("ui/uimanager")
+          local WidgetContainer = require("ui/widget/container/widgetcontainer")
+          local BookList = require("ui/widget/booklist")
+          local DocumentRegistry = require("document/documentregistry")
+          local ffiUtil = require("ffi/util")
+          local lfs = require("libs/libkoreader-lfs")
+          '''
+          new_prefix = '''local DataStorage = require("datastorage")
+          local lfs = require("libs/libkoreader-lfs")
+
+          -- Create BookVault's user icon directory before any UI widget module
+          -- can cache IconWidget's search paths. This is important on a truly
+          -- fresh installation, where the directory does not exist yet.
+          local function ensureBookVaultIconsBootstrap()
+              local icon_dir = DataStorage:getDataDir() .. "/icons"
+              if lfs.attributes(icon_dir, "mode") ~= "directory" then
+                  pcall(lfs.mkdir, icon_dir)
+              end
+              if lfs.attributes(icon_dir, "mode") ~= "directory" then return false end
+              local icons = {
+                  ["bookvault-cat.svg"] = [[<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><path d="M18 27 13 13l14 7c3-1 7-1 10 0l14-7-5 14c3 3 5 7 5 12 0 9-9 15-22 15S7 48 7 39c0-5 2-9 5-12z" fill="#000"/><path d="M20 38h.1M44 38h.1" stroke="#fff" stroke-width="4" stroke-linecap="round"/><path d="M29 44c2 2 4 2 6 0M32 42v3M32 7v5M26 10h12" fill="none" stroke="#000" stroke-width="3" stroke-linecap="round"/></svg>]],
+                  ["bookvault-sort.svg"] = [[<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><g fill="none" stroke="#000" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 14v36"/><path d="m10 22 8-8 8 8"/><path d="M38 50V14"/><path d="m30 42 8 8 8-8"/><path d="M50 14h6M50 26h6M50 38h6"/></g></svg>]],
+                  ["bookvault-sort-cat.svg"] = [[<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><g fill="none" stroke="#000" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 39V21l9 5c4-2 10-2 14 0l9-5v18c0 8-7 14-16 14S12 47 12 39z" fill="#000"/><path d="M20 38h.1M36 38h.1M25 44c2 2 4 2 6 0" stroke="#fff" stroke-width="3"/><path d="M49 12v36M43 18l6-6 6 6M43 42l6 6 6-6"/><path d="M2 18h6M2 30h6M2 42h6"/></g></svg>]],
+              }
+              for name, data in pairs(icons) do
+                  local path = icon_dir .. "/" .. name
+                  if lfs.attributes(path, "mode") ~= "file" then
+                      local file = io.open(path, "w")
+                      if file then file:write(data); file:close() end
+                  end
+              end
+              return lfs.attributes(icon_dir .. "/bookvault-sort.svg", "mode") == "file"
+          end
+
+          ensureBookVaultIconsBootstrap()
+
+          local ButtonDialog = require("ui/widget/buttondialog")
+          local DoubleSpinWidget = require("ui/widget/doublespinwidget")
+          local InfoMessage = require("ui/widget/infomessage")
+          local InputDialog = require("ui/widget/inputdialog")
+          local LuaSettings = require("luasettings")
+          local PathChooser = require("ui/widget/pathchooser")
+          local ReaderUI = require("apps/reader/readerui")
+          local TitleBar = require("ui/widget/titlebar")
+          local UIManager = require("ui/uimanager")
+          local WidgetContainer = require("ui/widget/container/widgetcontainer")
+          local BookList = require("ui/widget/booklist")
+          local DocumentRegistry = require("document/documentregistry")
+          local ffiUtil = require("ffi/util")
+          '''
+          if old_prefix not in s:
+              raise SystemExit('expected main.lua import prefix not found')
+          s = s.replace(old_prefix, new_prefix, 1)
+
+          old_ensure_start = 'function BookVault:ensureBookVaultIcons()\n'
+          start = s.find(old_ensure_start)
+          if start == -1:
+              raise SystemExit('ensureBookVaultIcons function not found')
+          end_marker = '\nfunction BookVault:loadBookInfoManager()'
+          end_pos = s.find(end_marker, start)
+          if end_pos == -1:
+              raise SystemExit('ensureBookVaultIcons end marker not found')
+          replacement = '''function BookVault:ensureBookVaultIcons()\n    return ensureBookVaultIconsBootstrap()\nend\n'''
+          s = s[:start] + replacement + s[end_pos+1:]
+
+          main.write_text(s, encoding='utf-8')
+
+          meta = Path('_meta.lua')
+          ms = meta.read_text(encoding='utf-8').replace('version = "2.4.0"', 'version = "2.4.1"')
+          meta.write_text(ms, encoding='utf-8')
+
+          readme = Path('README.md')
+          rs = readme.read_text(encoding='utf-8')
+          rs = rs.replace('# BookVault 2.4.0', '# BookVault 2.4.1', 1)
+          rs = rs.replace('A versão 2.4.0 acompanha', 'A versão 2.4.1 acompanha', 1)
+          marker = '## Estabilidade\n'
+          note = '''## 2.4.1 — endurecimento da instalação\n\n- Os ícones personalizados são criados antes do carregamento dos widgets de interface do KOReader, evitando o problema de ícone ausente em uma instalação nova.\n- A lógica visual do mosaico, pesquisa, ordenação, ordem personalizada, grade, coleções, progresso e segurança permanece a mesma.\n- Nenhum monkey patch global foi adicionado.\n\n'''
+          if '## 2.4.1 — endurecimento da instalação' not in rs:
+              rs = rs.replace(marker, note + marker, 1)
+          readme.write_text(rs, encoding='utf-8')
+          PY
+
+      - name: Syntax check Lua
+        shell: bash
+        run: |
+          cat > /tmp/check_bookvault.lua <<'LUA'
+          local f, err = loadfile('main.lua')
+          assert(f, err)
+          print('Lua syntax OK')
+          LUA
+          luatex --luaonly /tmp/check_bookvault.lua
+
+      - name: Commit hardened version
+        shell: bash
+        run: |
+          git config user.name 'bookvault-bot'
+          git config user.email 'bookvault-bot@users.noreply.github.com'
+          git add main.lua _meta.lua README.md
+          git diff --cached --quiet && exit 0
+          git commit -m 'Harden fresh-install icons and release 2.4.1 [bookvault-hardening]'
+          git push
+
+      - name: Remove temporary workflow
+        if: always()
+        shell: bash
+        run: |
+          git config user.name 'bookvault-bot'
+          git config user.email 'bookvault-bot@users.noreply.github.com'
+          if [ -f .github/workflows/bookvault_hardening.yml ]; then
+            git rm .github/workflows/bookvault_hardening.yml
+            git commit -m 'Remove temporary hardening workflow [bookvault-hardening]'
+            git push
+          fi
