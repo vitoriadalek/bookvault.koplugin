@@ -1,0 +1,1 @@
+# bookvault.koplugin
