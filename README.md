@@ -1,4 +1,4 @@
-# BookVault 2.4.1
+# BookVault 2.5.0
 
 Biblioteca visual para KOReader, feita para organizar uma biblioteca pessoal em um mosaico de capas reais sem substituir globalmente o FileManager, FileChooser, ReaderUI ou CoverBrowser.
 
@@ -12,17 +12,22 @@ Biblioteca visual para KOReader, feita para organizar uma biblioteca pessoal em 
 - Ordem personalizada persistente por status e por coleção, com mover para cima, baixo, início e fim.
 - Ordenação escolhida persistente por visualização.
 - Grade de capas personalizável para retrato e paisagem, com 2–8 colunas/linhas, sem substituir o MosaicMenu.
-- Identidade visual BookVault opcional, detalhe lunar opcional e assinatura visual sem emojis incompatíveis na barra.
+- Identidade visual BookVault opcional, com gatinho e detalhe lunar em PNG leve e transparente, sem emojis.
+- Barra superior compatível com gerações do KOReader que não exibem `custom_title_bar`: os controles são montados sobre a barra nativa, preservando a navegação.
 - Paginação e indicadores de progresso/status preservados pelo MosaicMenu nativo.
 - Senha numérica com salt/hash.
 - Pastas protegidas e conteúdo privado.
 - Conteúdo privado ocultado nas visualizações do BookVault até desbloqueio.
 
-## 2.4.1 — endurecimento da instalação
+## 2.5.0 — fechamento visual e compatibilidade
 
-- Ícones personalizados preparados antes dos widgets de interface, cobrindo instalações novas.
-- Mosaico, pesquisa, ordenação, ordem personalizada, grade, coleções, progresso, senha e privacidade preservados.
-- Nenhum monkey patch global adicionado.
+- Busca e ordenação passam a usar botões PNG próprios e leves.
+- Gatinho + ordenação e lua são elementos visuais reais, não emojis.
+- O controle de ordenação não depende exclusivamente do suporte de `right_icon`/`custom_title_bar` da versão do KOReader instalada.
+- O bootstrap copia os PNGs para a pasta de ícones do KOReader antes do carregamento dos widgets e remove variantes SVG legadas que poderiam vencer a resolução do PNG.
+- O ajuste da grade força o recálculo da dimensão do mosaico antes da atualização.
+- Mosaico, pesquisa, ordenação, ordem personalizada, grade, coleções, progresso, senha e privacidade foram preservados.
+- Nenhum monkey patch global foi reintroduzido.
 
 ## Estabilidade
 
@@ -38,8 +43,8 @@ A proteção do BookVault controla o acesso pelas interfaces do plugin. Ela não
 
 ## Compatibilidade
 
-A versão 2.4.1 acompanha as APIs atuais do KOReader usadas por `Menu`, `TitleBar`, `BookList`, `CoverMenu`, `MosaicMenu` e `BookInfoManager`. Como componentes internos do KOReader podem mudar entre versões, o teste final deve ser feito no dispositivo com a mesma versão do KOReader usada pelo usuário.
+A versão 2.5.0 usa a barra nativa do BookList como base e adiciona uma camada de controles própria, reduzindo a dependência de diferenças entre versões do `TitleBar`. O mosaico continua usando `CoverMenu`, `MosaicMenu` e `BookInfoManager` de forma lazy e por instância.
 
 ## AppStore
 
-O repositório mantém a estrutura de plugin KOReader e os tópicos de descoberta usados pela AppStore comunitária. A instalação pode usar o branch `main`; uma release do GitHub não é necessária para a descoberta pelo catálogo.
+O repositório mantém a estrutura de plugin KOReader e os tópicos de descoberta usados pela AppStore comunitária. A instalação pode usar o branch `main`; a AppStore mantém cache local e pode exigir atualização/refresh do catálogo antes de mostrar uma nova versão. 
