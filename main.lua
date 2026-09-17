@@ -1,7 +1,5 @@
 local ButtonDialog = require("ui/widget/buttondialog")
 local DataStorage = require("datastorage")
-local Dispatcher = require("dispatcher")
-local FileChooser = require("ui/widget/filechooser")
 local InfoMessage = require("ui/widget/infomessage")
 local InputDialog = require("ui/widget/inputdialog")
 local LuaSettings = require("luasettings")
@@ -10,7 +8,6 @@ local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local BookList = require("ui/widget/booklist")
 local DocumentRegistry = require("document/documentregistry")
-local filemanagerutil = require("apps/filemanager/filemanagerutil")
 local ffiUtil = require("ffi/util")
 local lfs = require("libs/libkoreader-lfs")
 local sha2 = require("ffi/sha2")
@@ -33,17 +30,6 @@ local STATUS = {
     { key = "new", label = _("Não iniciados") },
 }
 
-local BOOK_EXTENSIONS = {
-    epub=true, epub3=true, mobi=true, azw=true, azw3=true, pdf=true,
-    djvu=true, djv=true, cbz=true, cbr=true, cbt=true, fb2=true, fbz=true,
-    txt=true, html=true, htm=true, rtf=true, doc=true, docx=true, chm=true,
-    xps=true,
-}
-
-local original_changeToPath
-local original_openFile
-local patches_installed = false
-
 local function normalize(path)
     if not path then return nil end
     local real = ffiUtil.realpath(path)
@@ -53,10 +39,6 @@ end
 local function contains(parent, child)
     parent, child = normalize(parent), normalize(child)
     return parent and child and (child == parent or child:sub(1, #parent + 1) == parent .. "/")
-end
-
-local function extension(path)
-    return ((path:match("([^/]+)$") or path):match("%.([^%.]+)$") or ""):lower()
 end
 
 local function addUnique(list, value)
@@ -76,13 +58,16 @@ function BookVault:loadSettings()
 end
 
 function BookVault:saveSettings()
-    if self.settings then self.settings:flush() end
+    self:loadSettings()
+    self.settings:flush()
 end
 
 function BookVault:getRoot()
     self:loadSettings()
     local root = self.settings.data.root
-    if root and lfs.attributes(root, "mode") == "directory" then return normalize(root) end
+    if root and lfs.attributes(root, "mode") == "directory" then
+        return normalize(root)
+    end
 end
 
 function BookVault:hasPassword()
@@ -136,11 +121,13 @@ function BookVault:saveNewPassword(password)
 end
 
 function BookVault:setPassword()
-    local begin = function()
+    local function create()
         local first
         first = InputDialog:new{
             title = self:hasPassword() and _("Nova senha numérica") or _("Criar senha numérica"),
-            input = "", input_type = "number", text_type = "password",
+            input = "",
+            input_type = "number",
+            text_type = "password",
             buttons = {{
                 { text = _("Cancelar"), callback = function() UIManager:close(first) end },
                 { text = _("Continuar"), is_enter_default = true, callback = function()
@@ -152,7 +139,10 @@ function BookVault:setPassword()
                     end
                     local second
                     second = InputDialog:new{
-                        title = _("Confirmar senha"), input = "", input_type = "number", text_type = "password",
+                        title = _("Confirmar senha"),
+                        input = "",
+                        input_type = "number",
+                        text_type = "password",
                         buttons = {{
                             { text = _("Cancelar"), callback = function() UIManager:close(second) end },
                             { text = _("Salvar"), is_enter_default = true, callback = function()
@@ -175,11 +165,10 @@ function BookVault:setPassword()
         UIManager:show(first)
         first:onShowKeyboard()
     end
-
     if self:hasPassword() then
-        self:askPassword(function(ok) if ok then begin() end end, _("Senha atual"))
+        self:askPassword(function(ok) if ok then create() end end, _("Senha atual"))
     else
-        begin()
+        create()
     end
 end
 
@@ -206,7 +195,7 @@ end
 function BookVault:guard(path, callback)
     if not self:needsUnlock(path) or self.unlocked then
         callback()
-        return true
+        return
     end
     self:askPassword(function(ok)
         if ok then
@@ -214,60 +203,12 @@ function BookVault:guard(path, callback)
             callback()
         end
     end)
-    return false
-end
-
-function BookVault:installPatches()
-    if patches_installed then return end
-    patches_installed = true
-
-    original_changeToPath = FileChooser.changeToPath
-    FileChooser.changeToPath = function(chooser, path, focused_path, ...)
-        local old_path = chooser.path
-        if old_path and self:needsUnlock(old_path) and not contains(old_path, path) then
-            self.unlocked = false
-        end
-        if not self:needsUnlock(path) or self.unlocked then
-            return original_changeToPath(chooser, path, focused_path, ...)
-        end
-        self:askPassword(function(ok)
-            if ok then
-                self.unlocked = true
-                original_changeToPath(chooser, path, focused_path, ...)
-            end
-        end)
-    end
-
-    -- FileManager routes normal book opening through this helper. Wrapping it
-    -- gives BookVault the same password gate for files opened from the browser,
-    -- search/history and other standard FileManager entry points.
-    original_openFile = filemanagerutil.openFile
-    filemanagerutil.openFile = function(ui, file, caller_pre_callback, no_dialog, after_open_callback, ...)
-        if not self:needsUnlock(file) or self.unlocked then
-            return original_openFile(ui, file, caller_pre_callback, no_dialog, after_open_callback, ...)
-        end
-        self:askPassword(function(ok)
-            if ok then
-                self.unlocked = true
-                original_openFile(ui, file, caller_pre_callback, no_dialog, after_open_callback, ...)
-            end
-        end)
-    end
-end
-
-function BookVault:onSuspend()
-    self.unlocked = false
-end
-
-function BookVault:onResume()
-    self.unlocked = false
 end
 
 function BookVault:scanBooks(include_private)
     local root = self:getRoot()
     if not root then return {} end
     local result, visited = {}, {}
-
     local function scan(dir)
         dir = normalize(dir)
         if visited[dir] then return end
@@ -279,47 +220,39 @@ function BookVault:scanBooks(include_private)
                 local path = dir .. "/" .. name
                 local attr = lfs.attributes(path)
                 if attr and attr.mode == "directory" then
-                    if include_private or not self:isPrivate(path) then scan(path) end
-                elseif attr and attr.mode == "file"
-                    and BOOK_EXTENSIONS[extension(path)]
-                    and DocumentRegistry:hasProvider(path)
-                    and (include_private or not self:isPrivate(path)) then
-                    result[#result + 1] = { path = path, filepath = path, text = name, attr = attr }
+                    if include_private or not self:isPrivate(path) then
+                        scan(path)
+                    end
+                elseif attr and attr.mode == "file" then
+                    local provider_ok = pcall(DocumentRegistry.hasProvider, DocumentRegistry, path)
+                    if provider_ok and DocumentRegistry:hasProvider(path) and (include_private or not self:isPrivate(path)) then
+                        result[#result + 1] = { path = path, filepath = path, text = name, attr = attr }
+                    end
                 end
             end
         end
     end
-
     scan(root)
     table.sort(result, function(a, b) return a.text:lower() < b.text:lower() end)
     return result
 end
 
-function BookVault:loadCoverBrowserModules()
-    -- PluginLoader adds every loaded plugin directory to package.path. Keep a
-    -- fallback for KOReader variants where CoverBrowser is not yet on it.
-    local old_path = package.path
-    local data = DataStorage:getDataDir()
-    package.path = data .. "/plugins/coverbrowser.koplugin/?.lua;" .. old_path
-    local ok1, bim = pcall(require, "bookinfomanager")
-    local ok2, cm = pcall(require, "covermenu")
-    local ok3, mm = pcall(require, "mosaicmenu")
-    package.path = old_path
-    if ok1 and ok2 and ok3 then return bim, cm, mm end
-end
-
 function BookVault:showStatusChooser()
     local buttons = {}
     for _, status in ipairs(STATUS) do
-        buttons[#buttons + 1] = {
+        buttons[#buttons + 1] = {{
             text = status.label,
             callback = function()
                 UIManager:close(self.status_dialog)
                 self:showLibrary(status.key, self.unlocked)
             end,
-        }
+        }}
     end
-    self.status_dialog = ButtonDialog:new{ title = _("BookVault"), buttons = buttons }
+    self.status_dialog = ButtonDialog:new{
+        title = _("BookVault"),
+        title_align = "center",
+        buttons = buttons,
+    }
     UIManager:show(self.status_dialog)
 end
 
@@ -330,44 +263,29 @@ function BookVault:showLibrary(status, include_private)
             items[#items + 1] = item
         end
     end
-
-    local BookInfoManager, CoverMenu, MosaicMenu = self:loadCoverBrowserModules()
     local menu
     menu = BookList:new{
-        title = _("BookVault"),
+        title = _("BookVault") .. " · " .. (function()
+            for _, s in ipairs(STATUS) do if s.key == status then return s.label end end
+            return _("Todos")
+        end)(),
         item_table = items,
         covers_fullscreen = true,
         onMenuSelect = function(_, item)
             self:guard(item.path, function()
-                local fm = require("apps/filemanager/filemanager").instance
-                if fm then fm:openFile(item.path) end
+                local filemanager = require("apps/filemanager/filemanager")
+                local fm = filemanager.instance
+                if fm then
+                    fm:openFile(item.path)
+                else
+                    local reader = require("apps/reader/readerui").instance
+                    if reader and reader.showFileManager then
+                        reader:showFileManager(item.path)
+                    end
+                end
             end)
         end,
-        onLeftButtonTap = function()
-            UIManager:close(menu)
-            self:showStatusChooser()
-        end,
     }
-
-    if BookInfoManager and CoverMenu and MosaicMenu then
-        BookInfoManager:openDbConnection()
-        menu.nb_cols_portrait = BookInfoManager:getSetting("nb_cols_portrait") or 3
-        menu.nb_rows_portrait = BookInfoManager:getSetting("nb_rows_portrait") or 3
-        menu.nb_cols_landscape = BookInfoManager:getSetting("nb_cols_landscape") or 4
-        menu.nb_rows_landscape = BookInfoManager:getSetting("nb_rows_landscape") or 2
-        menu.files_per_page = BookInfoManager:getSetting("files_per_page")
-        menu.display_mode_type = "mosaic"
-        menu._do_cover_images = true
-        menu._do_center_partial_rows = true
-        menu._do_hint_opened = true
-        menu.getBookInfo = function(_, file) return BookInfoManager:getBookInfo(file) end
-        menu.getDocProps = function(_, file) return BookInfoManager:getDocProps(file) end
-        menu.updateItems = CoverMenu.updateItems
-        menu.onCloseWidget = CoverMenu.onCloseWidget
-        menu._recalculateDimen = MosaicMenu._recalculateDimen
-        menu._updateItemsBuildUI = MosaicMenu._updateItemsBuildUI
-    end
-
     UIManager:show(menu)
     menu:updateItems()
 end
@@ -386,30 +304,30 @@ function BookVault:chooseRoot()
     })
 end
 
-function BookVault:chooseManagedPath(is_private)
+function BookVault:chooseManagedPath(private)
     self:loadSettings()
     UIManager:show(PathChooser:new{
         path = self:getRoot() or G_reader_settings:readSetting("home_dir"),
         select_directory = true,
         select_file = false,
         onConfirm = function(path)
-            local list = is_private and self.settings.data.private_paths or self.settings.data.protected_paths
+            local list = private and self.settings.data.private_paths or self.settings.data.protected_paths
             addUnique(list, path)
             self:saveSettings()
             UIManager:show(InfoMessage:new{
-                text = is_private and _("Pasta adicionada ao conteúdo privado.") or _("Pasta protegida."),
+                text = private and _("Pasta adicionada ao conteúdo privado.") or _("Pasta protegida."),
             })
         end,
     })
 end
 
-function BookVault:listManagedPaths(is_private)
+function BookVault:listManagedPaths(private)
     self:loadSettings()
-    local list = is_private and self.settings.data.private_paths or self.settings.data.protected_paths
+    local list = private and self.settings.data.private_paths or self.settings.data.protected_paths
     local function showList()
         local buttons = {}
         for i, path in ipairs(list) do
-            buttons[#buttons + 1] = {
+            buttons[#buttons + 1] = {{
                 text = path,
                 callback = function()
                     table.remove(list, i)
@@ -417,21 +335,38 @@ function BookVault:listManagedPaths(is_private)
                     UIManager:close(self.path_dialog)
                     showList()
                 end,
-            }
+            }}
         end
-        buttons[#buttons + 1] = { text = _("Cancelar"), callback = function() UIManager:close(self.path_dialog) end }
+        buttons[#buttons + 1] = {{ text = _("Cancelar"), callback = function() UIManager:close(self.path_dialog) end }}
         self.path_dialog = ButtonDialog:new{
-            title = is_private and _("Conteúdo privado") or _("Pastas protegidas"),
+            title = private and _("Conteúdo privado") or _("Pastas protegidas"),
             buttons = buttons,
         }
         UIManager:show(self.path_dialog)
     end
-
     if self:hasPassword() then
         self:askPassword(function(ok) if ok then showList() end end, _("Senha do BookVault"))
     else
         showList()
     end
+end
+
+function BookVault:togglePrivate()
+    if self.unlocked then
+        self.unlocked = false
+        self:showStatusChooser()
+        return
+    end
+    if not self:hasPassword() then
+        self:setPassword()
+        return
+    end
+    self:askPassword(function(ok)
+        if ok then
+            self.unlocked = true
+            self:showStatusChooser()
+        end
+    end, _("Acessar conteúdo privado"))
 end
 
 function BookVault:addToMainMenu(menu_items)
@@ -443,21 +378,7 @@ function BookVault:addToMainMenu(menu_items)
                 text_func = function()
                     return self.unlocked and "◉ " .. _("Ocultar conteúdo") or "◉ " .. _("Acessar conteúdo")
                 end,
-                callback = function()
-                    if self.unlocked then
-                        self.unlocked = false
-                        self:showStatusChooser()
-                    elseif not self:hasPassword() then
-                        self:setPassword()
-                    else
-                        self:askPassword(function(ok)
-                            if ok then
-                                self.unlocked = true
-                                self:showStatusChooser()
-                            end
-                        end, _("Acessar conteúdo privado"))
-                    end
-                end,
+                callback = function() self:togglePrivate() end,
             },
             { text = _("Configurar pasta da biblioteca"), callback = function() self:chooseRoot() end },
             { text = _("Criar/alterar senha"), callback = function() self:setPassword() end },
@@ -469,25 +390,23 @@ function BookVault:addToMainMenu(menu_items)
     }
 end
 
-function BookVault:onDispatcherRegisterActions()
-    Dispatcher:registerAction("bookvault_open", {
-        category = "none", event = "BookVaultOpen", title = _("BookVault: Abrir biblioteca"),
-        general = true, separator = false,
-    })
+function BookVault:onBookVaultOpen()
+    self:showStatusChooser()
+end
+
+function BookVault:onSuspend()
+    self.unlocked = false
+end
+
+function BookVault:onResume()
+    self.unlocked = false
 end
 
 function BookVault:init()
-    -- Do not scan books or load cover data during plugin initialization.
-    -- This keeps AppStore/plugin loading lightweight and prevents one bad
-    -- library entry from making the plugin disappear from Tools.
+    -- Keep initialization deliberately small: a failure while loading a library
+    -- or optional UI component must never prevent the plugin from being listed.
     self:loadSettings()
-    self:installPatches()
     self.ui.menu:registerToMainMenu(self)
-    self:onDispatcherRegisterActions()
-end
-
-function BookVault:onBookVaultOpen()
-    self:showStatusChooser()
 end
 
 return BookVault
