@@ -1,7 +1,6 @@
 -- BookVault icon bootstrap.
--- The small compatibility bridge below exists only to install BookVault's
--- action layer at class creation time; it restores WidgetContainer.extend
--- immediately after creating the BookVault class.
+-- The compatibility bridge is limited to BookVault class creation and is restored
+-- immediately after the class is decorated.
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
 
@@ -57,6 +56,56 @@ WidgetContainer.extend = function(base, props, ...)
         else
             pcall(require("logger").err, "BookVault action fix unavailable", fix)
         end
+
+        -- ButtonDialog's default outside-tap dismissal can steal the same touch
+        -- sequence that opened the context menu on some KOReader mosaic builds.
+        -- Keep the dialog non-dismissable so its buttons always receive the tap;
+        -- every action has an explicit Cancel/close path.
+        local ButtonDialog = require("ui/widget/buttondialog")
+        local UIManager = require("ui/uimanager")
+        local filemanagerutil = require("apps/filemanager/filemanagerutil")
+        local _ = require("gettext")
+        local old_show = cls.showBookActions
+        if old_show then
+            cls.showBookActions = function(self, menu, item)
+                if menu._bookvault_selection_mode then
+                    return self:toggleSelection(menu, item)
+                end
+                local dialog
+                local function close()
+                    if dialog then UIManager:close(dialog) end
+                end
+                local buttons = {
+                    {{text=_("Abrir livro"), callback=function() close(); filemanagerutil.openFile(self.ui, item.path) end}},
+                    {{text=_("Informações do livro"), callback=function() close(); self:showBookInfo(item) end}},
+                    {{text=_("Status de leitura"), callback=function() close(); self:showBookStatusActions(menu,item) end}},
+                    {{text=_("Coleções"), callback=function() close(); self:showCollectionsForBook(item,menu) end}},
+                    {{text=_("Editar capa/metadados"), callback=function() close(); self:showBookInfo(item) end}},
+                    {{text=_("Buscar capa no Google Imagens"), callback=function() close(); self:searchGoogleImagesForCover(item.path) end}},
+                    {{text=_("Selecionar vários"), callback=function() close(); self:enterSelection(menu,item) end}},
+                    {{text=_("Renomear"), callback=function() close(); self:renameBook(item,menu) end}},
+                    {{text=_("Copiar"), callback=function() close(); self:copyOrMoveBook(item,menu,false) end}},
+                    {{text=_("Mover"), callback=function() close(); self:copyOrMoveBook(item,menu,true) end}},
+                    {{text=_("Excluir"), callback=function() close(); self:deleteBooks({[item.path]=true},menu) end}},
+                    {{text=_("Abrir localização"), callback=function()
+                        close()
+                        local dir=item.path:match("^(.*)/[^/]+$")
+                        if self.ui and self.ui.file_chooser and dir then self.ui.file_chooser:changeToPath(dir,item.path) end
+                    end}},
+                    {{text=_("Ações de plugins"), callback=function() close(); self:showPluginActions(menu,item) end}},
+                    {{text=_("Cancelar"), callback=function() close() end}},
+                }
+                dialog=ButtonDialog:new{
+                    title=item.text or item.path,
+                    title_align="center",
+                    dismissable=false,
+                    buttons=buttons,
+                }
+                UIManager:show(dialog)
+                return true
+            end
+        end
+
         WidgetContainer.extend = original_extend
     end
     return cls
