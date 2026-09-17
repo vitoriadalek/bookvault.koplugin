@@ -10,8 +10,9 @@ BookVault 2.1.0 keeps the stable loader while adding a lazy visual library layer
 - Visual mosaic applies to **Todos, Lendo, Em espera, Concluídos and Não iniciados**.
 - The same visual mosaic applies to KOReader Collections opened inside BookVault.
 - Cover metadata/progress presentation comes from KOReader's existing mosaic implementation.
-- Search button in the library title bar.
-- Hold the search button to open sorting: title, most recently read, modified recently and size.
+- Cute BookVault cat icon in the visual library title bar.
+- Tapping the cat icon opens search; holding it opens sorting.
+- Sorting: title, most recently read, modified recently and size.
 - Search and sorting operate on the current BookVault dataset without moving or changing books.
 - If the CoverBrowser mosaic modules are unavailable on a KOReader build, BookVault automatically falls back to the stable native BookList instead of failing to load.
 - Recursive library scan from a configurable folder.
@@ -35,11 +36,11 @@ BookVault 2.1.0 keeps the stable loader while adding a lazy visual library layer
 
 The visual layer is intentionally lazy. `coverbrowser`, `covermenu` and `mosaicmenu` are not required while KOReader is loading the BookVault plugin. This is important because an incompatible optional UI dependency must not prevent BookVault from registering in Tools/Plugins.
 
-When the library opens, BookVault creates a normal `BookList` instance and applies KOReader's documented/current CoverBrowser mosaic implementation to that instance only. The integration also provides the `getBookInfo` callback expected by KOReader's mosaic items.
+When the library opens, BookVault creates a normal `BookList` instance and applies KOReader's current CoverBrowser mosaic implementation to that instance only. The integration also provides the `getBookInfo` callback expected by KOReader's mosaic items.
 
 All visual integration is wrapped in protected calls and has a native BookList fallback. BookVault does not replace global FileChooser, FileManager, ReaderUI or CoverBrowser class methods.
 
-The repository also contains `bookvault-cat.svg` as the BookVault visual asset for the interface theme. The core loader does not depend on that asset, so a missing/unsupported image feature cannot hide the plugin.
+The cat SVG is also copied lazily into KOReader's writable user icon directory only when a visual library is opened. If that write is unavailable, the title bar falls back to the standard search icon and the library continues working.
 
 ## Collections
 
