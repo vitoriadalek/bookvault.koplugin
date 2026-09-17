@@ -82,6 +82,7 @@ function BookVault:loadSettings()
     d.private_paths = d.private_paths or {}
     d.custom_orders = d.custom_orders or {}
     d.sort_modes = d.sort_modes or {}
+    d.sort_directions = d.sort_directions or {}
     d.grid = d.grid or {}
     d.appearance = d.appearance or {}
     if type(d.visible_statuses) ~= "table" then
@@ -311,44 +312,43 @@ function BookVault:getBookMetadata(item)
     return info
 end
 
-function BookVault:sortBookVaultItems(menu,mode)
+function BookVault:sortBookVaultItems(menu,mode,direction)
     if not menu then return end
-    local items=copyItems(menu._bookvault_filtered_items or menu._bookvault_source_items or menu.item_table or {})
+    self:loadSettings()
+    local key=menu._bookvault_view_key
+    local directions=self.settings.data.sort_directions[key] or {}
+    direction=direction or directions[mode] or ((mode=="title" or mode=="author") and "asc" or "desc")
+    self.settings.data.sort_modes[key]=mode
+    directions[mode]=direction
+    self.settings.data.sort_directions[key]=directions
+    self:saveSettings()
     if mode=="custom" then self:showCustomOrderEditor(menu); return end
-    self:loadSettings(); self.settings.data.sort_modes[menu._bookvault_view_key]=mode; self:saveSettings()
+    local items=copyItems(menu._bookvault_filtered_items or menu._bookvault_source_items or menu.item_table or {})
+    local function cmp(a,b) if a==b then return false end; return direction=="asc" and a<b or a>b end
     if mode=="recent" then
-        table.sort(items,function(a,b) return (a.attr and a.attr.access or 0)>(b.attr and b.attr.access or 0) end)
+        table.sort(items,function(a,b) return cmp(a.attr and a.attr.access or 0,b.attr and b.attr.access or 0) end)
     elseif mode=="modified" then
-        table.sort(items,function(a,b) return (a.attr and a.attr.modification or 0)>(b.attr and b.attr.modification or 0) end)
+        table.sort(items,function(a,b) return cmp(a.attr and a.attr.modification or 0,b.attr and b.attr.modification or 0) end)
     elseif mode=="size" then
-        table.sort(items,function(a,b) return (a.attr and a.attr.size or 0)>(b.attr and b.attr.size or 0) end)
+        table.sort(items,function(a,b) return cmp(a.attr and a.attr.size or 0,b.attr and b.attr.size or 0) end)
     elseif mode=="author" or mode=="title" or mode=="pages" then
         local cache={}
-        local function meta(item)
-            if not cache[item.path] then cache[item.path]=self:getBookMetadata(item) end
-            return cache[item.path]
-        end
-        if mode=="author" then
-            table.sort(items,function(a,b)
-                local ma,mb=meta(a),meta(b)
+        local function meta(item) if not cache[item.path] then cache[item.path]=self:getBookMetadata(item) end; return cache[item.path] end
+        table.sort(items,function(a,b)
+            local ma,mb=meta(a),meta(b)
+            if mode=="author" then
                 local aa=(ma.authors or a.author or ""):lower(); local ab=(mb.authors or b.author or ""):lower()
-                if aa==ab then return (ma.title or a.text or ""):lower()<(mb.title or b.text or ""):lower() end
-                return aa<ab
-            end)
-        elseif mode=="pages" then
-            table.sort(items,function(a,b)
-                local pa=tonumber(meta(a).pages or a.pages) or 0; local pb=tonumber(meta(b).pages or b.pages) or 0
-                if pa==pb then return (meta(a).title or a.text or ""):lower()<(meta(b).title or b.text or ""):lower() end
-                return pa>pb
-            end)
-        else
-            table.sort(items,function(a,b)
-                local ta=(meta(a).title or a.text or ""):lower(); local tb=(meta(b).title or b.text or ""):lower()
-                return ta<tb
-            end)
-        end
+                if aa==ab then return cmp((ma.title or a.text or ""):lower(),(mb.title or b.text or ""):lower()) end
+                return cmp(aa,ab)
+            elseif mode=="pages" then
+                local pa=tonumber(ma.pages or a.pages) or 0; local pb=tonumber(mb.pages or b.pages) or 0
+                if pa==pb then return cmp((ma.title or a.text or ""):lower(),(mb.title or b.text or ""):lower()) end
+                return cmp(pa,pb)
+            end
+            return cmp((ma.title or a.text or ""):lower(),(mb.title or b.text or ""):lower())
+        end)
     else
-        table.sort(items,function(a,b) return (a.text or ""):lower()<(b.text or ""):lower() end)
+        table.sort(items,function(a,b) return cmp((a.text or ""):lower(),(b.text or ""):lower()) end)
     end
     menu.item_table=items; menu.page=1
     if not menu._bookvault_filtered_items then menu._bookvault_source_items=items end
@@ -356,16 +356,30 @@ function BookVault:sortBookVaultItems(menu,mode)
     menu:updateItems()
 end
 
+function BookVault:sortDirectionLabel(mode,direction)
+    local labels={title={"A → Z","Z → A"},author={"A → Z","Z → A"},recent={"novo → antigo","antigo → novo"},modified={"novo → antigo","antigo → novo"},size={"maior → menor","menor → maior"},pages={"mais → menos","menos → mais"}}
+    local pair=labels[mode] or {"manual","manual"}
+    return direction=="asc" and pair[1] or pair[2]
+end
+
 function BookVault:showSortDialog(menu)
     if not menu then return end
+    self:loadSettings()
+    local key=menu._bookvault_view_key
+    local active=self.settings.data.sort_modes[key]
+    local directions=self.settings.data.sort_directions[key] or {}
+    local function current(mode) return directions[mode] or ((mode=="title" or mode=="author") and "asc" or "desc") end
+    local function toggle(mode)
+        local d=current(mode); d=(d=="asc") and "desc" or "asc"; self:sortBookVaultItems(menu,mode,d)
+    end
+    local function row(mode,label)
+        local marker=active==mode and "✓ " or "  "
+        return {{text=marker.._(label).."    "..self:sortDirectionLabel(mode,current(mode)),callback=function() toggle(mode) end}}
+    end
     local buttons={
-        {{text=_("Título"),callback=function() self:sortBookVaultItems(menu,"title") end}},
-        {{text=_("Autor"),callback=function() self:sortBookVaultItems(menu,"author") end}},
-        {{text=_("Mais recentes"),callback=function() self:sortBookVaultItems(menu,"recent") end}},
-        {{text=_("Modificados recentemente"),callback=function() self:sortBookVaultItems(menu,"modified") end}},
-        {{text=_("Tamanho"),callback=function() self:sortBookVaultItems(menu,"size") end}},
-        {{text=_("Mais páginas"),callback=function() self:sortBookVaultItems(menu,"pages") end}},
-        {{text=_("Ordem personalizada"),callback=function() UIManager:close(menu._bookvault_sort_dialog); menu._bookvault_sort_dialog=nil; self:showCustomOrderEditor(menu) end}},
+        row("title","Título"), row("author","Autor"), row("recent","Acessados recentemente"),
+        row("modified","Modificados recentemente"), row("size","Tamanho"), row("pages","Páginas"),
+        {{text="  ".._("Ordem personalizada").."    manual",callback=function() UIManager:close(menu._bookvault_sort_dialog); menu._bookvault_sort_dialog=nil; self:showCustomOrderEditor(menu) end}},
         {{text=_("Cancelar"),callback=function() UIManager:close(menu._bookvault_sort_dialog); menu._bookvault_sort_dialog=nil end}},
     }
     menu._bookvault_sort_dialog=ButtonDialog:new{title=_("Ordenar livros"),title_align="center",buttons=buttons}; UIManager:show(menu._bookvault_sort_dialog)
@@ -572,7 +586,10 @@ function BookVault:makeBookMenu(name,title,items,view_key)
     menu.item_table=copyItems(menu._bookvault_source_items)
     self:loadSettings()
     local saved_sort=self.settings.data.sort_modes[menu._bookvault_view_key]
-    if saved_sort and saved_sort ~= "custom" then self:sortBookVaultItems(menu,saved_sort) end
+    if saved_sort and saved_sort ~= "custom" then
+        local sd=self.settings.data.sort_directions[menu._bookvault_view_key] and self.settings.data.sort_directions[menu._bookvault_view_key][saved_sort]
+        self:sortBookVaultItems(menu,saved_sort,sd)
+    end
     local ok_visual=self:prepareVisualMenu(menu,menu._bookvault_source_items)
     if not ok_visual then menu._bookvault_source_items=items; menu.item_table=items end
     self:decorateTitleBar(menu,appearance,search_cb,sort_cb)
