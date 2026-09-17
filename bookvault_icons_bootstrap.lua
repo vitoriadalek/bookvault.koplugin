@@ -75,10 +75,23 @@ WidgetContainer.extend = function(base, props, ...)
                 local function close()
                     if dialog then UIManager:close(dialog) end
                 end
+                local function showStatus()
+                    local status_dialog
+                    status_dialog=ButtonDialog:new{
+                        title=_("Status de leitura"),
+                        title_align="center",
+                        dismissable=false,
+                        buttons={
+                            {filemanagerutil.genStatusButtonsRow(item.path,function() UIManager:close(status_dialog); if menu then menu:updateItems(1,true) end end)},
+                            {{text=_("Cancelar"),callback=function() UIManager:close(status_dialog) end}},
+                        },
+                    }
+                    UIManager:show(status_dialog)
+                end
                 local buttons = {
                     {{text=_("Abrir livro"), callback=function() close(); filemanagerutil.openFile(self.ui, item.path) end}},
                     {{text=_("Informações do livro"), callback=function() close(); self:showBookInfo(item) end}},
-                    {{text=_("Status de leitura"), callback=function() close(); self:showBookStatusActions(menu,item) end}},
+                    {{text=_("Status de leitura"), callback=function() close(); showStatus() end}},
                     {{text=_("Coleções"), callback=function() close(); self:showCollectionsForBook(item,menu) end}},
                     {{text=_("Editar capa/metadados"), callback=function() close(); self:showBookInfo(item) end}},
                     {{text=_("Buscar capa no Google Imagens"), callback=function() close(); self:searchGoogleImagesForCover(item.path) end}},
