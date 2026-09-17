@@ -1,4 +1,4 @@
-# BookVault 2.3.0
+# BookVault 2.4.0
 
 Biblioteca visual para KOReader, feita para organizar uma biblioteca pessoal em um mosaico de capas reais sem substituir globalmente o FileManager, FileChooser, ReaderUI ou CoverBrowser.
 
@@ -8,11 +8,11 @@ Biblioteca visual para KOReader, feita para organizar uma biblioteca pessoal em 
 - Categorias: Todos, Lendo, Em espera, Concluídos e Não iniciados.
 - Coleções nativas do KOReader em modo somente leitura.
 - Pesquisa visível na barra superior, por nome do arquivo e, quando disponível, título/autor dos metadados.
-- Ordenação visível na barra superior por título, autor, mais recentes, modificados recentemente, tamanho e páginas.
+- Ordenação visível na barra superior por título, autor, mais recentes, modificados recentemente, tamanho e páginas, com ícone próprio do BookVault.
 - Ordem personalizada persistente por status e por coleção, com mover para cima, baixo, início e fim.
 - Ordenação escolhida persistente por visualização.
 - Grade de capas personalizável para retrato e paisagem, com 2–8 colunas/linhas, sem substituir o MosaicMenu.
-- Identidade visual BookVault opcional e detalhe lunar opcional na barra.
+- Identidade visual BookVault opcional, detalhe lunar opcional e assinatura visual sem emojis incompatíveis na barra.
 - Paginação e indicadores de progresso/status preservados pelo MosaicMenu nativo.
 - Senha numérica com salt/hash.
 - Pastas protegidas e conteúdo privado.
@@ -32,7 +32,7 @@ A proteção do BookVault controla o acesso pelas interfaces do plugin. Ela não
 
 ## Compatibilidade
 
-A versão 2.3.0 acompanha as APIs atuais do KOReader usadas por `Menu`, `TitleBar`, `BookList`, `CoverMenu`, `MosaicMenu` e `BookInfoManager`. Como componentes internos do KOReader podem mudar entre versões, o teste final deve ser feito no dispositivo com a mesma versão do KOReader usada pelo usuário.
+A versão 2.4.0 acompanha as APIs atuais do KOReader usadas por `Menu`, `TitleBar`, `BookList`, `CoverMenu`, `MosaicMenu` e `BookInfoManager`. Como componentes internos do KOReader podem mudar entre versões, o teste final deve ser feito no dispositivo com a mesma versão do KOReader usada pelo usuário.
 
 ## AppStore
 
