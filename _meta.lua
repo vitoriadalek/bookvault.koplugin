@@ -1,6 +1,6 @@
 return {
     name = "bookvault",
     fullname = "BookVault",
-    description = "Virtual reading-status library with native cover mosaic, private content and protected folders.",
-    version = "1.3.1",
+    description = "Reading-status library with private content and password-protected folders.",
+    version = "1.4.0",
 }
