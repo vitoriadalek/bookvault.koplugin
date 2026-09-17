@@ -2,12 +2,19 @@
 
 BookVault is a KOReader plugin that creates a virtual reading-status library without moving or copying books.
 
-## Version 2.0.1
+## Version 2.1.0
 
-This release prioritizes the plugin loader and keeps the stable BookVault core after the experimental visual layer caused compatibility problems on some KOReader builds.
+BookVault 2.1.0 keeps the stable loader while adding a lazy visual library layer. Covers are rendered through KOReader's existing CoverBrowser mosaic components only when a BookVault library or collection is opened.
 
+- Cover mosaic with real book covers.
+- Visual mosaic applies to **Todos, Lendo, Em espera, Concluídos and Não iniciados**.
+- The same visual mosaic applies to KOReader Collections opened inside BookVault.
+- Cover metadata/progress presentation comes from KOReader's existing mosaic implementation.
+- Search button in the library title bar.
+- Hold the search button to open sorting: title, most recently read, modified recently and size.
+- Search and sorting operate on the current BookVault dataset without moving or changing books.
+- If the CoverBrowser mosaic modules are unavailable on a KOReader build, BookVault automatically falls back to the stable native BookList instead of failing to load.
 - Recursive library scan from a configurable folder.
-- Reading-status categories: Todos, Lendo, Em espera, Concluídos and Não iniciados.
 - KOReader Collections are displayed directly inside BookVault.
 - Collection entries are limited to books inside the configured BookVault library root.
 - Private books remain hidden from collection views until content is unlocked.
@@ -21,10 +28,18 @@ This release prioritizes the plugin loader and keeps the stable BookVault core a
 - Password changes require the current password.
 - Protected/private folder lists can be managed from the plugin menu.
 - Unlock state is cleared when KOReader suspends or resumes.
-- Uses KOReader's standard BookList, ReaderUI and ReadCollection APIs.
 - No global FileChooser, FileManager, ReaderUI or CoverBrowser monkey patches.
 - No modification of book files or KOReader collection data.
-- BookList keeps `covers_fullscreen` enabled so the library remains compatible with KOReader's native cover presentation without replacing KOReader classes.
+
+## Stability design
+
+The visual layer is intentionally lazy. `coverbrowser`, `covermenu` and `mosaicmenu` are not required while KOReader is loading the BookVault plugin. This is important because an incompatible optional UI dependency must not prevent BookVault from registering in Tools/Plugins.
+
+When the library opens, BookVault creates a normal `BookList` instance and applies KOReader's documented/current CoverBrowser mosaic implementation to that instance only. The integration also provides the `getBookInfo` callback expected by KOReader's mosaic items.
+
+All visual integration is wrapped in protected calls and has a native BookList fallback. BookVault does not replace global FileChooser, FileManager, ReaderUI or CoverBrowser class methods.
+
+The repository also contains `bookvault-cat.svg` as the BookVault visual asset for the interface theme. The core loader does not depend on that asset, so a missing/unsupported image feature cannot hide the plugin.
 
 ## Collections
 
@@ -36,12 +51,6 @@ Collections are read from KOReader's native `ReadCollection` data. BookVault doe
 
 Open **BookVault → Biblioteca → Categorias exibidas** to choose which reading-status categories appear. BookVault prevents the last visible status category from being disabled.
 
-## Stability
-
-The 2.0.1 loader intentionally uses only modules that were already part of the stable BookVault implementation. Experimental custom TitleBar, CoverBrowser module loading and per-instance mosaic method replacement were removed from the active loader because they could make the plugin fail to load on a KOReader build before BookVault could register itself in the Tools/Plugins menu.
-
-The cat SVG remains in the repository for the future visual layer, but it is not loaded by the core plugin at startup.
-
 ## Installation
 
 Repository: `vitoriadalek/bookvault.koplugin`
@@ -50,7 +59,7 @@ Install from the KOReader community App Store when the repository is available t
 
 ## Compatibility
 
-Designed for current KOReader builds using standard plugin APIs.
+Designed for current KOReader builds using standard plugin APIs. The cover mosaic follows the current KOReader CoverBrowser implementation and automatically falls back to native BookList if those optional modules are unavailable.
 
 ## Security limitation
 
