@@ -531,7 +531,7 @@ function BookVault:prepareVisualMenu(menu,source_items)
     return true
 end
 
-function BookVault:decorateTitleBar(menu, appearance, search_cb, sort_cb)
+function BookVault:decorateTitleBar(menu, appearance, search_cb, sort_cb, settings_cb)
     local bar=menu and menu.title_bar
     if not bar then return end
     local old_right=bar.right_button
@@ -558,6 +558,8 @@ function BookVault:decorateTitleBar(menu, appearance, search_cb, sort_cb)
     end
     table.insert(group,HorizontalSpan:new{width=gap})
     table.insert(group,IconButton:new{icon=appearance.show_cat and "bookvault-sort-cat" or "bookvault-sort",width=icon_size,height=icon_size,padding=button_padding,callback=sort_cb,show_parent=menu})
+    table.insert(group,HorizontalSpan:new{width=gap})
+    table.insert(group,IconButton:new{icon="gear",width=icon_size,height=icon_size,padding=button_padding,callback=settings_cb,show_parent=menu})
     local width=bar.width or Screen:getWidth()
     local height=(bar.getHeight and bar:getHeight()) or Screen:scaleBySize(44)
     local right=RightContainer:new{dimen=Geom:new{x=0,y=0,w=width,h=height},group}
@@ -575,6 +577,7 @@ function BookVault:makeBookMenu(name,title,items,view_key)
     if appearance.show_moon == nil then appearance.show_moon=true end
     local function search_cb() self:showSearchDialog(menu) end
     local function sort_cb() self:showSortDialog(menu) end
+    local function settings_cb() self:showAppearanceSettings(menu) end
     menu=BookList:new{
         name=name,title=title,item_table=items,covers_fullscreen=true,
         onMenuSelect=function(_,item) self:guard(item.path,function()
@@ -595,7 +598,7 @@ function BookVault:makeBookMenu(name,title,items,view_key)
     end
     local ok_visual=self:prepareVisualMenu(menu,menu._bookvault_source_items)
     if not ok_visual then menu._bookvault_source_items=items; menu.item_table=items end
-    self:decorateTitleBar(menu,appearance,search_cb,sort_cb)
+    self:decorateTitleBar(menu,appearance,search_cb,sort_cb,settings_cb)
     return menu
 end
 
@@ -703,4 +706,16 @@ function BookVault:show() self:showStatusChooser() end
 function BookVault:onSuspend() self.unlocked=false end
 function BookVault:onResume() self.unlocked=false end
 function BookVault:init() self:loadSettings(); self.ui.menu:registerToMainMenu(self) end
+
+-- Install BookVault actions explicitly on the BookVault class.
+-- This is intentionally done after the class is fully defined and never by
+-- replacing WidgetContainer.extend/BookList.new globally.
+local ok_actions, actions = pcall(require, "bookvault_actions")
+if ok_actions and actions and actions.install then
+    local ok_install, err = pcall(actions.install, BookVault)
+    if not ok_install then logger.err("BookVault action layer install failed", err) end
+else
+    logger.err("BookVault action layer unavailable", actions)
+end
+
 return BookVault
