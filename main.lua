@@ -11,7 +11,6 @@ local InfoMessage = require("ui/widget/infomessage")
 local InputDialog = require("ui/widget/inputdialog")
 local LuaSettings = require("luasettings")
 local PathChooser = require("ui/widget/pathchooser")
-local ReaderUI = require("apps/reader/readerui")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local BookList = require("ui/widget/booklist")
@@ -59,6 +58,13 @@ local function copyItems(items)
     local result = {}
     for i, item in ipairs(items or {}) do result[i] = item end
     return result
+end
+
+local function getReaderUI()
+    local ok, ReaderUI = pcall(require, "apps/reader/readerui")
+    if ok and ReaderUI then return ReaderUI end
+    logger.warn("BookVault: ReaderUI unavailable; book opening is temporarily unavailable")
+    return nil
 end
 
 local function safe(fn)
@@ -787,7 +793,12 @@ function BookVault:makeBookMenu(name,title,items,view_key)
                 UIManager:show(InfoMessage:new{text=_("O arquivo não existe mais.")})
                 return
             end
-            ReaderUI:showReader(item.path)
+            local reader_ui = getReaderUI()
+            if not reader_ui then
+                UIManager:show(InfoMessage:new{text=_("O leitor do KOReader não está disponível no momento.")})
+                return
+            end
+            reader_ui:showReader(item.path)
         end) end,
     }
     self._last_menu=menu
