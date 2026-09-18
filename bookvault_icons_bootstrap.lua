@@ -19,20 +19,7 @@ local png_icons = {
     "bookvault-cat.png",
     "bookvault-moon.png",
 }
-local svg_icons = {
-    "bookvault-collections.svg",
-    "bookvault-move.svg",
-    "bookvault-copy.svg",
-    "bookvault-trash.svg",
-    "bookvault-more.svg",
-    "bookvault-open.svg",
-    "bookvault-info.svg",
-    "bookvault-edit.svg",
-    "bookvault-search-action.svg",
-    "bookvault-folder.svg",
-    "bookvault-check.svg",
-    "bookvault-cancel.svg",
-}
+local svg_icons = {}
 
 local function copyFile(name)
     if not plugin_dir or lfs.attributes(icon_dir, "mode") ~= "directory" then return end
