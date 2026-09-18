@@ -1,48 +1,27 @@
 -- BookVault 3.x action and interaction layer.
 -- Kept scoped to BookVault-created menus: no global KOReader monkey patches.
 
--- Keep this action layer out of the plugin bootstrap: load it only when
--- BookVault is actually used. This prevents a missing optional dependency
--- from hiding the whole plugin from KOReader.
-local M = {}
-
-local logger = require("logger")
+local ButtonDialog = require("ui/widget/buttondialog")
+local ConfirmBox = require("ui/widget/confirmbox")
+local InfoMessage = require("ui/widget/infomessage")
+local InputDialog = require("ui/widget/inputdialog")
+local PathChooser = require("ui/widget/pathchooser")
+local UIManager = require("ui/uimanager")
+local BookList = require("ui/widget/booklist")
+local DocSettings = require("docsettings")
+local ReadCollection = require("readcollection")
+local DataStorage = require("datastorage")
+local ffiUtil = require("ffi/util")
+local lfs = require("libs/libkoreader-lfs")
+local util = require("util")
+local filemanagerutil = require("apps/filemanager/filemanagerutil")
+local ReaderUI = require("apps/reader/readerui")
 local _ = require("gettext")
-
-local function safeRequire(module_name)
-    local ok, module = pcall(require, module_name)
-    if ok and module then return module end
-    logger.warn("BookVault: action dependency unavailable:", module_name, module)
-    return nil
-end
-
-local ButtonDialog = safeRequire("ui/widget/buttondialog")
-local ConfirmBox = safeRequire("ui/widget/confirmbox")
-local InfoMessage = safeRequire("ui/widget/infomessage")
-local InputDialog = safeRequire("ui/widget/inputdialog")
-local PathChooser = safeRequire("ui/widget/pathchooser")
-local UIManager = safeRequire("ui/uimanager")
-local BookList = safeRequire("ui/widget/booklist")
-local DocSettings = safeRequire("docsettings")
-local ReadCollection = safeRequire("readcollection")
-local DataStorage = safeRequire("datastorage")
-local ffiUtil = safeRequire("ffi/util")
-local lfs = safeRequire("libs/libkoreader-lfs")
-local util = safeRequire("util")
-local filemanagerutil = safeRequire("apps/filemanager/filemanagerutil")
-local T = ffiUtil and ffiUtil.template
-local N_ = _ .ngettext
+local logger = require("logger")
 local T = ffiUtil.template
 local N_ = _.ngettext
 
 local M = {}
-
-local function getReaderUI()
-    local ok, ReaderUI = pcall(require, "apps/reader/readerui")
-    if ok and ReaderUI then return ReaderUI end
-    logger.warn("BookVault: ReaderUI unavailable for this action")
-    return nil
-end
 
 local function count(t)
     local n = 0
@@ -77,20 +56,6 @@ local function findSimpleUIBookVaultAction()
     if not ok_store or not store then return nil, nil end
     local tabs = store:get("simpleui_bar_tabs")
     if type(tabs) ~= "table" then return nil, nil end
-    -- Native BookVault Quick Action registered through Simple UI's public
-    -- registry. It avoids the context-sensitive plugin-key lookup used by
-    -- older persisted custom actions.
-    local ok_qa, QA = pcall(require, "features/sui_quickactions")
-    if ok_qa and QA and type(QA.getEntry) == "function" then
-        for _, action_id in ipairs(tabs) do
-            if action_id == "bookvault" then
-                local entry = QA.getEntry("bookvault")
-                if entry and entry.label == "BookVault" then
-                    return "bookvault", tabs
-                end
-            end
-        end
-    end
     for _, action_id in ipairs(tabs) do
         if type(action_id) == "string" and action_id:match("^custom_qa_%d+$") then
             local cfg = store:get("simpleui_qa_" .. action_id)
@@ -152,155 +117,6 @@ function M.install(BV)
     if BV._bookvault_actions_installed then return end
     BV._bookvault_actions_installed = true
 
-    -- Simple UI registration is performed from the live plugin instance
-    -- (not from the class table). This matters on Homescreen: the action
-    -- must capture the same BookVault instance that owns the live UI.
-    function BV:registerSimpleUIAction()
-        if self._bookvault_sui_registered then return true end
-
-        local ok_qa, QA = pcall(require, "features/sui_quickactions")
-        if not ok_qa or type(QA) ~= "table" or type(QA.register) ~= "function" then
-            return false
-        end
-
-        pcall(require, "bookvault_icons_bootstrap")
-        local descriptor = {
-            id = "bookvault",
-            label = _("BookVault"),
-            icon = "bookvault-cat",
-            is_in_place = false,
-            execute = function()
-                self:showStatusChooser()
-            end,
-        }
-        local ok, err = pcall(QA.register, descriptor)
-        if not ok then
-            logger.warn("BookVault: Simple UI action registration failed", err)
-            return false
-        end
-
-        self._bookvault_sui_registered = true
-        -- Only migrate the old persisted action after the native action is
-        -- actually registered. This prevents an unavailable native action
-        -- from deleting the only working legacy entry.
-        pcall(self.migrateLegacySimpleUIActions, self)
-        return true
-    end
-
-    function BV:registerSimpleUIWithRetry()
-        if self:registerSimpleUIAction() then return true end
-        if self._bookvault_sui_retry then return false end
-
-        self._bookvault_sui_retry = true
-        local attempts = 0
-        local function retry()
-            self._bookvault_sui_retry = false
-            attempts = attempts + 1
-            if self:registerSimpleUIAction() or attempts >= 5 then return end
-            self._bookvault_sui_retry = true
-            UIManager:scheduleIn(2, retry)
-        end
-        UIManager:scheduleIn(0, retry)
-        return false
-    end
-
-    -- Migrate the old persisted Simple UI "plugin_key=bookvault" action to
-    -- the native registered action. Keep its position in the bottom bar and
-    -- Homescreen QA slots so the user does not have to recreate the action.
-    -- Only entries that explicitly target BookVault are touched.
-    function BV:migrateLegacySimpleUIActions()
-        local ok_qa, QA = pcall(require, "features/sui_quickactions")
-        if not ok_qa or type(QA) ~= "table" or type(QA.getCustomQAList) ~= "function"
-                or type(QA.getCustomQAConfig) ~= "function"
-                or type(QA.deleteCustomQA) ~= "function" then
-            return false
-        end
-
-        local ok_store, Store = pcall(require, "infra/sui_store")
-        if not ok_store or not Store or type(Store.get) ~= "function"
-                or type(Store.set) ~= "function" then
-            return false
-        end
-
-        local legacy_ids = {}
-        for _, id in ipairs(QA.getCustomQAList() or {}) do
-            local cfg = QA.getCustomQAConfig(id)
-            local key = tostring(cfg.plugin_key or ""):lower()
-            local label = tostring(cfg.label or ""):lower()
-            if key == "bookvault" or key:match("bookvault") or label == "bookvault" then
-                legacy_ids[#legacy_ids + 1] = id
-            end
-        end
-        if #legacy_ids == 0 then return false end
-
-        local changed = false
-        local legacy = {}
-        for _, id in ipairs(legacy_ids) do legacy[id] = true end
-
-        local function replace_ids(list)
-            if type(list) ~= "table" then return list, false end
-            local out, did_change = {}, false
-            local native_seen = false
-            for _, id in ipairs(list) do
-                if legacy[id] then
-                    if not native_seen then
-                        out[#out + 1] = "bookvault"
-                        native_seen = true
-                    end
-                    did_change = true
-                elseif id == "bookvault" then
-                    if not native_seen then
-                        out[#out + 1] = id
-                        native_seen = true
-                    else
-                        did_change = true
-                    end
-                else
-                    out[#out + 1] = id
-                end
-            end
-            return out, did_change
-        end
-
-        local tabs = Store:get("simpleui_bar_tabs")
-        local new_tabs, tabs_changed = replace_ids(tabs)
-        if tabs_changed then Store:set("simpleui_bar_tabs", new_tabs); changed = true end
-
-        for slot = 1, 3 do
-            local key = "simpleui_hs_qa_" .. slot .. "_items"
-            local items = Store:get(key)
-            local new_items, items_changed = replace_ids(items)
-            if items_changed then Store:set(key, new_items); changed = true end
-        end
-
-        -- Replace legacy IDs inside Quick Action groups before deleting them.
-        for _, group_id in ipairs(QA.getCustomQAList() or {}) do
-            local items = QA.getQAFolderItems and QA.getQAFolderItems(group_id)
-            local new_items, items_changed = replace_ids(items)
-            if items_changed and QA.saveQAFolderItems then
-                QA.saveQAFolderItems(group_id, new_items)
-                changed = true
-            end
-        end
-
-        for _, id in ipairs(legacy_ids) do
-            pcall(QA.deleteCustomQA, id)
-            changed = true
-        end
-
-        if changed then
-            local mqa = package.loaded["modules/module_quick_actions"]
-            if mqa and mqa.invalidateCustomQACache then pcall(mqa.invalidateCustomQACache) end
-            local plugin = package.loaded["screens/sui_homescreen"]
-            if plugin and plugin._rebuildAllNavbars then pcall(plugin._rebuildAllNavbars, plugin) end
-            local ok_engine, ScreenEngine = pcall(require, "engines/sui_screen_engine")
-            if ok_engine and ScreenEngine and ScreenEngine.refreshAllLiveImmediate then
-                pcall(ScreenEngine.refreshAllLiveImmediate, false)
-            end
-        end
-        return changed
-    end
-
     -- Privacy is deliberately independent from folder protection.
     local oldLoad = BV.loadSettings
     BV.loadSettings = function(self, ...)
@@ -354,8 +170,7 @@ function M.install(BV)
     function BV:showBookInfo(item)
         if not item or not item.path then return end
         local fm = require("apps/filemanager/filemanager").instance
-        local ReaderUI = getReaderUI()
-        local rui = ReaderUI and ReaderUI.instance
+        local rui = ReaderUI.instance
         local ui = (fm and fm.bookinfo and fm) or (rui and rui.bookinfo and rui)
         local bookinfo = ui and ui.bookinfo
         if not bookinfo then
@@ -549,9 +364,6 @@ function M.install(BV)
                         pcall(DocSettings.updateLocation, file, dest)
                         pcall(function() require("readhistory"):updateItem(file, dest) end)
                         BookList.resetBookInfoCache(file)
-                        if self.invalidateLibraryCache then self:invalidateLibraryCache() end
-                        if self.invalidateBookMetadataCache then self:invalidateBookMetadataCache(file); self:invalidateBookMetadataCache(dest) end
-                        if self.invalidateStatusCache then self:invalidateStatusCache(file); self:invalidateStatusCache(dest) end
                         item.path, item.filepath, item.text = dest, dest, name
                         refresh(menu)
                     else
@@ -593,9 +405,6 @@ function M.install(BV)
                         if ok then changed = changed + 1 else failed = failed + 1 end
                     end
                 end
-                if changed > 0 and owner.invalidateLibraryCache then
-                    owner:invalidateLibraryCache()
-                end
                 if failed > 0 then
                     UIManager:show(InfoMessage:new{
                         text = T(_("%1 arquivo(s) não puderam ser processados."), failed),
@@ -636,8 +445,6 @@ function M.install(BV)
                     end
                     pcall(ReadCollection.removeItem, ReadCollection, file, nil, true)
                     BookList.resetBookInfoCache(file)
-                    if self.invalidateBookMetadataCache then self:invalidateBookMetadataCache(file) end
-                    if self.invalidateStatusCache then self:invalidateStatusCache(file) end
                 end
                 pcall(ReadCollection.write, ReadCollection)
                 pcall(function() require("readhistory"):clearMissing() end)
@@ -647,7 +454,6 @@ function M.install(BV)
                     })
                 end
                 if menu then
-                    self:invalidateLibraryCache()
                     self:leaveSelection(menu)
                     menu._bookvault_source_items = self:scanBooks(self:privacyIncludePrivate())
                     menu.item_table = menu._bookvault_source_items
@@ -748,7 +554,6 @@ function M.install(BV)
         end
 
         local row = filemanagerutil.genStatusButtonsRow(doc_settings_or_file, function()
-            if self.invalidateStatusCache then self:invalidateStatusCache(first) end
             refresh(menu)
         end)
         local dialog
@@ -803,13 +608,8 @@ function M.install(BV)
             summary.status = status
             local saved = filemanagerutil.saveSummary(ds, summary)
             BookList.setBookInfoCacheProperty(file, "status", status)
-            self._bookvault_status_cache = self._bookvault_status_cache or {}
-            self._bookvault_status_cache[file] = status
             if saved then ds = saved end
         end
-        -- Batch status changes invalidate the derived category index once,
-        -- rather than forcing every selected file to rebuild it.
-        self._bookvault_status_index = nil
         refresh(menu)
     end
 
@@ -830,9 +630,27 @@ function M.install(BV)
 
     function BV:showMoreActions(menu, item)
         if not item or not item.path then return end
-        -- "Mais ações" is intentionally a direct gateway to plugin actions.
-        -- Copy/Move remain primary batch actions and are not duplicated here.
-        self:showPluginActions(menu, item)
+        local dialog
+        dialog = ButtonDialog:new{
+            title = item.text or basename(item.path),
+            title_align = "center",
+            buttons = {
+                {{text = _("Copiar"), icon = "bookvault-copy", callback = function()
+                    closeIf(dialog)
+                    self:copyOrMoveBook(item, menu, false)
+                end}},
+                {{text = _("Mover"), icon = "bookvault-move", callback = function()
+                    closeIf(dialog)
+                    self:copyOrMoveBook(item, menu, true)
+                end}},
+                {{text = _("Mais ações / plugins"), icon = "bookvault-more", callback = function()
+                    closeIf(dialog)
+                    self:showPluginActions(menu, item)
+                end}},
+                {{text = _("Cancelar"), icon = "exit", callback = function() closeIf(dialog) end}},
+            },
+        }
+        UIManager:show(dialog)
     end
 
     function BV:showBookActions(menu, item)
@@ -874,7 +692,7 @@ function M.install(BV)
                 closeIf(dialog)
                 self:renameBook(item, menu)
             end}},
-            {{text = _("Buscar capa"), icon = "search", callback = function()
+            {{text = _("Buscar capa no Google Imagens"), icon = "search", callback = function()
                 closeIf(dialog)
                 self:searchGoogleImagesForCover(item.path)
             end}},
@@ -909,18 +727,11 @@ function M.install(BV)
         return true
     end
 
-    function BV:searchBookCovers(file)
-        -- Explicit, user-triggered cover search. No background scans.
-        -- Uses structured book APIs instead of scraping Google Images HTML.
+    function BV:searchGoogleImagesForCover(file)
+        -- Network is loaded lazily and only when the user explicitly asks for a cover.
         local http = require("socket.http")
         local ltn12 = require("ltn12")
         local socketutil = require("socketutil")
-        local urlmod = require("socket.url")
-        local JSON = require("json")
-        local mime = require("mime")
-        local Screen = require("device").screen
-        local Event = require("ui/event")
-
         local https_ok, https = pcall(require, "ssl.https")
         local function request(req)
             if req.url and req.url:match("^https://") and https_ok then
@@ -928,239 +739,41 @@ function M.install(BV)
             end
             return http.request(req)
         end
+        local urlmod = require("socket.url")
+        local mime = require("mime")
+        local ButtonDialog = require("ui/widget/buttondialog")
+        local Screen = require("device").screen
 
         local props = getProps(self, file)
         local title = props.title or props.display_title or basename(file):gsub("%.[^%.]+$", "")
-        local authors = props.authors or props.author or ""
-        if type(authors) == "table" then
-            local names = {}
-            for _, author in ipairs(authors) do
-                if type(author) == "string" and author ~= "" then names[#names + 1] = author end
-            end
-            authors = table.concat(names, " ")
-        end
-        title = tostring(title or ""):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
-        authors = tostring(authors or ""):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
-
-        local function firstIdentifier(value)
-            if type(value) == "string" then
-                local cleaned = value:gsub("[^%dXx]", "")
-                if #cleaned >= 10 then return cleaned end
-            elseif type(value) == "table" then
-                for _, v in ipairs(value) do
-                    local found = firstIdentifier(v)
-                    if found then return found end
-                end
-                for _, v in pairs(value) do
-                    local found = firstIdentifier(v)
-                    if found then return found end
-                end
-            end
-            return nil
-        end
-
-        local isbn = firstIdentifier(props.isbn13)
-            or firstIdentifier(props.isbn_13)
-            or firstIdentifier(props.isbn10)
-            or firstIdentifier(props.isbn_10)
-            or firstIdentifier(props.isbn)
-        if not isbn and type(props.identifiers) == "table" then
-            isbn = firstIdentifier(props.identifiers.isbn13)
-                or firstIdentifier(props.identifiers.isbn_13)
-                or firstIdentifier(props.identifiers.isbn10)
-                or firstIdentifier(props.identifiers.isbn_10)
-                or firstIdentifier(props.identifiers.isbn)
-        end
-
-        if title == "" then
+        local authors = props.authors or ""
+        if type(authors) == "table" then authors = table.concat(authors, " ") end
+        local query = tostring(title or "") .. " " .. tostring(authors or "")
+        query = query:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+        if query == "" then
             UIManager:show(InfoMessage:new{ text = _("Não foi possível determinar o título do livro.") })
             return
         end
 
-        local language = props.language
-        if type(language) == "table" then language = language[1] end
-        language = type(language) == "string" and language:lower() or nil
+        local search_url = "https://www.google.com/search?tbm=isch&safe=active&hl=pt-BR&q="
+            .. urlmod.escape(query)
 
-        local function normalizeText(value)
-            return tostring(value or ""):lower()
-                :gsub("[^%w%s]", " ")
-                :gsub("%s+", " ")
-                :gsub("^%s+", "")
-                :gsub("%s+$", "")
-        end
-
-        local wanted_title = normalizeText(title)
-        local wanted_author = normalizeText(authors)
-        local wanted_isbn = isbn and isbn:gsub("[^%dXx]", "") or nil
-
-        local function scoreCandidate(candidate)
-            local score = 0
-            local candidate_title = normalizeText(candidate.title)
-            local candidate_authors = normalizeText(candidate.authors)
-            local candidate_isbn = candidate.isbn and candidate.isbn:gsub("[^%dXx]", "") or nil
-
-            if wanted_isbn and candidate_isbn and wanted_isbn == candidate_isbn then
-                score = score + 120
-            end
-            if candidate_title ~= "" and candidate_title == wanted_title then
-                score = score + 80
-            elseif candidate_title ~= "" and wanted_title ~= "" then
-                if candidate_title:find(wanted_title, 1, true) or wanted_title:find(candidate_title, 1, true) then
-                    score = score + 45
-                end
-            end
-            if wanted_author ~= "" and candidate_authors ~= "" then
-                if candidate_authors:find(wanted_author, 1, true) or wanted_author:find(candidate_authors, 1, true) then
-                    score = score + 45
-                end
-            end
-            if language and candidate.language and candidate.language:lower():find(language, 1, true) then
-                score = score + 10
-            end
-            if candidate.source == "openlibrary" then score = score + 5 end
-            return score
-        end
-
-        local function requestJSON(endpoint)
-            local sink = {}
-            socketutil:set_timeout(5, 12)
-            local ok, success, code, headers, status = pcall(function()
-                return request{
-                    url = endpoint,
-                    method = "GET",
-                    headers = {
-                        ["User-Agent"] = "BookVault/3.4 (KOReader)",
-                        ["Accept"] = "application/json",
-                        ["Accept-Encoding"] = "identity",
-                    },
-                    sink = ltn12.sink.table(sink),
-                }
-            end)
-            socketutil:reset_timeout()
-            if not ok or success ~= 1 or tonumber(code) ~= 200 then
-                return nil
-            end
-            local body = table.concat(sink)
-            if body == "" or #body > 700 * 1024 then return nil end
-            local decoded_ok, data = pcall(JSON.decode, body)
-            if decoded_ok and type(data) == "table" then return data end
-            return nil
-        end
-
-        local candidates, seen = {}, {}
-        local function addCandidate(candidate)
-            if type(candidate) ~= "table" or type(candidate.preview) ~= "string" or candidate.preview == "" then
-                return
-            end
-            candidate.original = candidate.original or candidate.preview
-            candidate.key = candidate.key or candidate.preview
-            if seen[candidate.key] then return end
-            candidate.score = scoreCandidate(candidate)
-            seen[candidate.key] = true
-            candidates[#candidates + 1] = candidate
-        end
-
-        local ol_query
-        if isbn then
-            ol_query = "isbn:" .. isbn
-        else
-            ol_query = title
-            if authors ~= "" then ol_query = ol_query .. " " .. authors end
-        end
-        local ol_url = "https://openlibrary.org/search.json?q=" .. urlmod.escape(ol_query)
-            .. "&limit=10&fields=key,title,author_name,cover_i,isbn,language,edition_key"
-
-        local ol_data = requestJSON(ol_url)
-        if ol_data and type(ol_data.docs) == "table" then
-            for _, doc in ipairs(ol_data.docs) do
-                if type(doc) == "table" and doc.cover_i then
-                    local doc_isbn = firstIdentifier(doc.isbn)
-                    local cover_id = tostring(doc.cover_i)
-                    addCandidate{
-                        source = "openlibrary",
-                        title = doc.title,
-                        authors = type(doc.author_name) == "table" and table.concat(doc.author_name, " ") or doc.author_name,
-                        language = type(doc.language) == "table" and doc.language[1] or doc.language,
-                        isbn = doc_isbn,
-                        preview = "https://covers.openlibrary.org/b/id/" .. cover_id .. "-M.jpg?default=false",
-                        original = "https://covers.openlibrary.org/b/id/" .. cover_id .. "-L.jpg?default=false",
-                        key = "ol:" .. cover_id,
-                    }
-                end
-            end
-        end
-
-        local gb_query
-        if isbn then
-            gb_query = "isbn:" .. isbn
-        else
-            gb_query = "intitle:" .. title
-            if authors ~= "" then gb_query = gb_query .. " inauthor:" .. authors end
-        end
-        local gb_url = "https://www.googleapis.com/books/v1/volumes?q=" .. urlmod.escape(gb_query)
-            .. "&maxResults=10&printType=books"
-
-        local gb_data = requestJSON(gb_url)
-        if gb_data and type(gb_data.items) == "table" then
-            for _, item in ipairs(gb_data.items) do
-                local info = type(item) == "table" and item.volumeInfo or nil
-                local images = info and info.imageLinks or nil
-                if type(info) == "table" and type(images) == "table" then
-                    local preview = images.smallThumbnail or images.thumbnail or images.small or images.medium
-                    local original = images.extraLarge or images.large or images.medium or images.small or images.thumbnail
-                    if preview and original then
-                        local identifiers = {}
-                        for _, identifier in ipairs(info.industryIdentifiers or {}) do
-                            if type(identifier) == "table" and identifier.identifier then
-                                identifiers[#identifiers + 1] = identifier.identifier
-                            end
-                        end
-                        addCandidate{
-                            source = "googlebooks",
-                            title = info.title,
-                            authors = type(info.authors) == "table" and table.concat(info.authors, " ") or info.authors,
-                            language = info.language,
-                            isbn = firstIdentifier(identifiers),
-                            preview = preview,
-                            original = original,
-                            key = "gb:" .. tostring(item.id or preview),
-                        }
-                    end
-                end
-            end
-        end
-
-        table.sort(candidates, function(a, b)
-            if a.score == b.score then
-                return (a.source or "") < (b.source or "")
-            end
-            return a.score > b.score
-        end)
-
-        local found_candidates = {}
-        for _, candidate in ipairs(candidates) do
-            found_candidates[#found_candidates + 1] = candidate
-            if #found_candidates >= 6 then break end
-        end
-
-        if #found_candidates == 0 then
-            UIManager:show(InfoMessage:new{
-                text = _("Nenhuma capa foi encontrada. Verifique a conexão e tente novamente."),
-            })
-            return
-        end
-
-        local base = DataStorage:getDataDir() .. "/bookvault/covers"
-        pcall(util.makePath, base)
-        local temp_files = {}
-
-        local function cleanup()
-            for _, path in ipairs(temp_files) do pcall(os.remove, path) end
-            temp_files = {}
+        local function normalize_url(u)
+            if type(u) ~= "string" or u == "" then return nil end
+            u = u:gsub("\\\\/", "/")
+            u = u:gsub("\\\\u003d", "="):gsub("\\\\u0026", "&")
+            u = u:gsub("\\\\u002f", "/")
+            u = u:gsub("&amp;", "&")
+            u = u:gsub("^%s+", ""):gsub("%s+$", "")
+            local ok, decoded = pcall(urlmod.unescape, u)
+            if ok and decoded and decoded ~= "" then u = decoded end
+            if not u:match("^https?://") then return nil end
+            if u:find("google%.com/search", 1) then return nil end
+            if #u > 4096 then return nil end
+            return u
         end
 
         local function requestToFile(target_url, output, max_bytes)
-            if type(target_url) ~= "string" or not target_url:match("^https?://") then return false end
             local f = io.open(output, "wb")
             if not f then return false end
             local total = 0
@@ -1180,21 +793,20 @@ function M.install(BV)
                 end
                 return 1
             end
-            socketutil:set_timeout(5, 12)
+            socketutil:set_timeout(8, 15)
             local ok, success, code = pcall(function()
                 return request{
                     url = target_url,
                     method = "GET",
                     headers = {
-                        ["User-Agent"] = "BookVault/3.4 (KOReader)",
-                        ["Accept"] = "image/jpeg,image/png,image/webp,image/*;q=0.8,*/*;q=0.5",
+                        ["User-Agent"] = "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36",
+                        ["Accept"] = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
                         ["Accept-Encoding"] = "identity",
                     },
                     sink = sink,
                 }
             end)
             socketutil:reset_timeout()
-            pcall(f.close, f)
             if not ok or success ~= 1 or tonumber(code) ~= 200 or total <= 0 then
                 pcall(os.remove, output)
                 return false
@@ -1202,12 +814,103 @@ function M.install(BV)
             return true
         end
 
+        UIManager:show(InfoMessage:new{ text = _("Pesquisando capas…") })
+
+        local html_parts = {}
+        socketutil:set_timeout(8, 15)
+        local ok, success, code = pcall(function()
+            return request{
+                url = search_url,
+                method = "GET",
+                headers = {
+                    ["User-Agent"] = "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36",
+                    ["Accept"] = "text/html,application/xhtml+xml",
+                    ["Accept-Encoding"] = "identity",
+                    ["Accept-Language"] = "pt-BR,pt;q=0.9,en;q=0.8",
+                },
+                sink = ltn12.sink.table(html_parts),
+            }
+        end)
+        socketutil:reset_timeout()
+
+        if not ok or success ~= 1 or tonumber(code) ~= 200 then
+            UIManager:show(InfoMessage:new{ text = _("O Google Imagens não respondeu corretamente.") })
+            return
+        end
+
+        local html = table.concat(html_parts)
+        if html == "" or html:find("unusual traffic", 1, true)
+                or html:find("consent.google.com", 1, true) then
+            UIManager:show(InfoMessage:new{ text = _("O Google Imagens não disponibilizou resultados para esta pesquisa.") })
+            return
+        end
+
+        local candidates, seen = {}, {}
+        local function addCandidate(original, thumb)
+            original = normalize_url(original)
+            thumb = normalize_url(thumb)
+            if not original then return end
+            if seen[original] then return end
+            seen[original] = true
+            candidates[#candidates + 1] = {
+                original = original,
+                thumb = thumb or original,
+            }
+        end
+
+        for ou, tu in html:gmatch('"ou"%s*:%s*"([^"]+)"%s*,%s*"tu"%s*:%s*"([^"]+)"') do
+            addCandidate(ou, tu)
+            if #candidates >= 6 then break end
+        end
+        if #candidates < 6 then
+            for tu, ou in html:gmatch('"tu"%s*:%s*"([^"]+)"[^}]-"ou"%s*:%s*"([^"]+)"') do
+                addCandidate(ou, tu)
+                if #candidates >= 12 then break end
+            end
+        end
+        if #candidates < 12 then
+            for encoded in html:gmatch("[?&]imgurl=([^&\"']+)") do
+                addCandidate(encoded, nil)
+                if #candidates >= 12 then break end
+            end
+        end
+        if #candidates < 12 then
+            for u in html:gmatch("https?://[^%s\"<>]+") do
+                u = normalize_url(u)
+                if u and not seen[u] then
+                    local lower = u:lower()
+                    if lower:find("%.jpg") or lower:find("%.jpeg") or lower:find("%.png")
+                            or lower:find("%.webp") or lower:find("%.gif")
+                            or lower:find("cover") or lower:find("image") then
+                        addCandidate(u, nil)
+                    end
+                end
+                if #candidates >= 12 then break end
+            end
+        end
+
+        if #candidates == 0 then
+            UIManager:show(InfoMessage:new{
+                text = _("Nenhuma capa foi encontrada. Tente novamente ou verifique a conexão."),
+            })
+            return
+        end
+
+        local base = DataStorage:getDataDir() .. "/bookvault/covers"
+        pcall(util.makePath, base)
+        local temp_files, found = {}, {}
+
+        local function cleanup()
+            for _, path in ipairs(temp_files) do pcall(os.remove, path) end
+            temp_files = {}
+        end
+
         local function makePreviewIcon(raw_path, index)
             local f = io.open(raw_path, "rb")
             if not f then return nil end
             local data = f:read("*a")
             f:close()
-            if not data or #data == 0 or #data > 180 * 1024 then return nil end
+            if not data or #data == 0 then return nil end
 
             local mime_type
             if data:sub(1, 3) == "\255\216\255" then
@@ -1236,14 +939,14 @@ function M.install(BV)
             return icon_name
         end
 
-        local found = {}
-        for i, candidate in ipairs(found_candidates) do
+        for i = 1, math.min(#candidates, 6) do
             if #found >= 6 then break end
+            local result = candidates[i]
             local thumb_path = base .. "/preview_" .. tostring(os.time()) .. "_" .. tostring(i) .. ".img"
-            if requestToFile(candidate.preview, thumb_path, 140 * 1024) then
+            if requestToFile(result.thumb, thumb_path, 180 * 1024) then
                 local icon_name = makePreviewIcon(thumb_path, i)
                 if icon_name then
-                    found[#found + 1] = {candidate = candidate, icon = icon_name}
+                    found[#found + 1] = { original = result.original, icon = icon_name }
                 else
                     pcall(os.remove, thumb_path)
                 end
@@ -1274,33 +977,27 @@ function M.install(BV)
                 callback = function()
                     closeIf(dialog)
                     cleanup()
-
-                    local selected = result.candidate
                     local out = base .. "/selected_" .. tostring(os.time()) .. "_" .. tostring(i) .. ".img"
-                    local ok_full = requestToFile(selected.original, out, 6 * 1024 * 1024)
+                    local ok_full = requestToFile(result.original, out, 8 * 1024 * 1024)
                     if not ok_full then
                         UIManager:show(InfoMessage:new{ text = _("Não foi possível baixar a capa escolhida.") })
                         return
                     end
-
                     local fm = require("apps/filemanager/filemanager").instance
                     local rui = ReaderUI.instance
                     local bookinfo = (fm and fm.bookinfo) or (rui and rui.bookinfo)
                     local applied = false
                     if bookinfo and bookinfo.setCustomCoverFromImage then
                         local call_ok = pcall(bookinfo.setCustomCoverFromImage, bookinfo, file, out)
-                        applied = call_ok and DocSettings:findCustomCoverFile(file) ~= nil
+                        applied = call_ok and DocSettings.findCustomCoverFile(file) ~= nil
                     end
                     pcall(os.remove, out)
-
                     if not applied then
                         UIManager:show(InfoMessage:new{ text = _("Não foi possível aplicar esta capa nesta tela.") })
                         return
                     end
-
-                    if self.invalidateBookMetadataCache then self:invalidateBookMetadataCache(file) end
-                    UIManager:broadcastEvent(Event:new("InvalidateMetadataCache", file))
-                    UIManager:broadcastEvent(Event:new("BookMetadataChanged", file))
+                    UIManager:broadcastEvent(require("ui/event"):new("InvalidateMetadataCache", file))
+                    UIManager:broadcastEvent(require("ui/event"):new("BookMetadataChanged", file))
                     if self._last_menu then refresh(self._last_menu) end
                     UIManager:show(InfoMessage:new{ text = _("Capa aplicada.") })
                 end,
@@ -1317,7 +1014,7 @@ function M.install(BV)
         }}
 
         dialog = ButtonDialog:new{
-            title = _("Escolher capa"),
+            title = _("Google Imagens · escolher capa"),
             title_align = "center",
             buttons = rows,
             shrink_unneeded_width = true,
@@ -1328,10 +1025,6 @@ function M.install(BV)
         UIManager:show(dialog)
     end
 
-    -- Keep the old entry point as a compatibility alias for any existing
-    -- menu or saved callback that still refers to its previous name.
-    BV.searchGoogleImagesForCover = BV.searchBookCovers
-    
     function BV:markSimpleUIActive()
         if self._bookvault_sui_action then return true end
         local action_id, tabs = findSimpleUIBookVaultAction()
