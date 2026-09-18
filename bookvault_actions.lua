@@ -659,35 +659,29 @@ function M.install(BV)
     end
 
     function BV:searchGoogleImagesForCover(file)
-        local socket = require("socket")
         local http = require("socket.http")
         local ltn12 = require("ltn12")
         local socketutil = require("socketutil")
-        local ImageWidget = require("ui/widget/imagewidget")
-        local Button = require("ui/widget/button")
-        local HorizontalGroup = require("ui/widget/horizontalgroup")
-        local HorizontalSpan = require("ui/widget/horizontalspan")
-        local VerticalGroup = require("ui/widget/verticalgroup")
-        local CenterContainer = require("ui/widget/container/centercontainer")
-        local FrameContainer = require("ui/widget/container/framecontainer")
-        local Geom = require("ui/geometry")
+        local ButtonDialog = require("ui/widget/buttondialog")
         local Screen = require("device").screen
-        local Size = require("ui/size")
 
         local props = getProps(self, file)
         local title = props.title or props.display_title or basename(file):gsub("%.[^%.]+$", "")
         local authors = props.authors or ""
-        local query = (title .. " " .. authors):gsub("[^%w%s%-]", " "):gsub("%s+", " ")
-        local encoded = query:gsub(" ", "+")
+        local query = (tostring(title) .. " " .. tostring(authors)):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+        local encoded = query:gsub("([^%w%-_%.~])", function(ch)
+            return string.format("%%%02X", string.byte(ch))
+        end)
         local url = "https://www.google.com/search?tbm=isch&safe=active&q=" .. encoded
 
         local function decodeUrl(u)
             if not u then return nil end
             u = u:gsub("\\/", "/")
             u = u:gsub("\\u003d", "="):gsub("\\u0026", "&")
-            u = u:gsub("\x3d", "="):gsub("\x26", "&")
+            u = u:gsub("\\u003F", "?"):gsub("\\u002f", "/")
+            u = u:gsub("&#x3[Dd];", "="):gsub("&#x2[6&];", "&")
             u = u:gsub("&amp;", "&")
-            u = u:gsub("\"", """)
+            u = u:gsub('\\"', '"')
             return u
         end
 
@@ -695,14 +689,14 @@ function M.install(BV)
             if type(u) ~= "string" or u == "" then return false end
             if not u:match("^https?://") then return false end
             if u:find("google%.com/search", 1) then return false end
-            if u:find("gstatic%.com/images", 1) then return false end
-            return #u < 4096
+            if #u > 4096 then return false end
+            return true
         end
 
         local function requestToFile(target_url, output_base, max_bytes)
             local total = 0
             local file_handle
-            local sink = function(chunk, err)
+            local sink = function(chunk)
                 if not chunk then
                     if file_handle then file_handle:close() end
                     return 1
@@ -746,6 +740,14 @@ function M.install(BV)
             return true, headers and tostring(headers["content-type"] or ""):lower()
         end
 
+        local function addResult(found, seen, original, thumb)
+            original, thumb = decodeUrl(original), decodeUrl(thumb)
+            if not validImageUrl(original) then return end
+            if not validImageUrl(thumb) then thumb = original end
+            if seen[original] then return end
+            seen[original] = true
+            found[#found + 1] = { original=original, thumb=thumb }
+        end
 
         UIManager:show(InfoMessage:new{ text=_("Pesquisando capas…") })
 
@@ -778,36 +780,27 @@ function M.install(BV)
         end
 
         local found, seen = {}, {}
-        local function addResult(original, thumb)
-            original, thumb = decodeUrl(original), decodeUrl(thumb)
-            if not validImageUrl(original) then return end
-            if not validImageUrl(thumb) then thumb = original end
-            if seen[original] then return end
-            seen[original] = true
-            found[#found+1] = {original=original, thumb=thumb}
-        end
 
-        -- Google image results commonly expose original ("ou") and thumbnail
-        -- ("tu") URLs inside JSON-like data. Accept both spacing variants.
-        for ou, tu in html:gmatch('"ou"%s*:%s*"([^"]+)"%s*,%s*"tu"%s*:%s*"([^"]+)"') do
-            addResult(ou, tu)
+        -- Current Google Images still exposes compact metadata objects containing
+        -- the original URL ("ou") and generated thumbnail ("tu"). We parse those
+        -- objects directly instead of depending on file extensions in the HTML.
+        for meta in html:gmatch('<div[^>]-class="rg_meta"[^>]*>(%b{})</div>') do
+            local ou = meta:match('"ou"%s*:%s*"([^"]+)"')
+            local tu = meta:match('"tu"%s*:%s*"([^"]+)"')
+            addResult(found, seen, ou, tu)
             if #found >= 6 then break end
         end
+
         if #found < 6 then
             for ou, tu in html:gmatch('"ou"%s*:%s*"([^"]+)"[^}]-"tu"%s*:%s*"([^"]+)"') do
-                addResult(ou, tu)
+                addResult(found, seen, ou, tu)
                 if #found >= 6 then break end
             end
         end
+
         if #found < 6 then
-            for u in html:gmatch('https?://[^"\\<>%s]+') do
-                u = decodeUrl(u)
-                if validImageUrl(u) and not seen[u] then
-                    local lower = u:lower()
-                    if lower:find("%.jpg") or lower:find("%.jpeg") or lower:find("%.png") or lower:find("%.webp") then
-                        addResult(u, u)
-                    end
-                end
+            for ou in html:gmatch('"ou"%s*:%s*"([^"]+)"') do
+                addResult(found, seen, ou, ou)
                 if #found >= 6 then break end
             end
         end
@@ -826,8 +819,8 @@ function M.install(BV)
         local cols = 2
         local thumb_w = math.min(Screen:scaleBySize(170), math.floor(Screen:getWidth() / 2) - Screen:scaleBySize(35))
         local thumb_h = Screen:scaleBySize(220)
-
         local dialog
+
         local function cleanup()
             for _, path in ipairs(temp_files) do pcall(os.remove, path) end
             temp_files = {}
@@ -844,7 +837,7 @@ function M.install(BV)
                 local thumb_path = stem .. "." .. ext
                 os.remove(thumb_path)
                 os.rename(stem .. ".tmp", thumb_path)
-                temp_files[#temp_files+1] = thumb_path
+                temp_files[#temp_files + 1] = thumb_path
 
                 local button = {
                     icon=thumb_path,
@@ -855,12 +848,14 @@ function M.install(BV)
                     callback=function()
                         if dialog then UIManager:close(dialog) end
                         cleanup()
+
                         local full_stem = base .. "/cover_" .. tostring(os.time()) .. "_" .. tostring(i)
                         local ok_full, full_type = requestToFile(result.original, full_stem .. ".tmp", 8 * 1024 * 1024)
                         if not ok_full then
                             UIManager:show(InfoMessage:new{text=_("Não foi possível baixar a capa escolhida.")})
                             return
                         end
+
                         local full_ext = full_type and full_type:match("image/([%w%+%-]+)")
                         full_ext = (full_ext == "jpeg" and "jpg") or full_ext
                         if full_ext ~= "jpg" and full_ext ~= "png" and full_ext ~= "webp" then full_ext = "jpg" end
@@ -875,6 +870,7 @@ function M.install(BV)
                             applied = pcall(ui.bookinfo.setCustomCoverFromImage, ui.bookinfo, file, out)
                         end
                         pcall(os.remove, out)
+
                         if applied then
                             UIManager:broadcastEvent(require("ui/event"):new("InvalidateMetadataCache", file))
                             if self._last_menu then refresh(self._last_menu) end
@@ -887,29 +883,32 @@ function M.install(BV)
 
                 if i % cols == 1 then
                     row = {button}
-                    buttons[#buttons+1] = row
+                    buttons[#buttons + 1] = row
                 else
-                    row[#row+1] = button
+                    row[#row + 1] = button
                 end
             end
         end
 
-
-        if #normalized == 0 then
+        if #buttons == 0 then
             cleanup()
             UIManager:show(InfoMessage:new{text=_("As prévias das capas não puderam ser carregadas.")})
             return
         end
 
-        normalized[#normalized+1] = {{text=_("Cancelar"),icon="exit",callback=function()
-            closeIf(dialog)
-            cleanup()
-        end}}
+        buttons[#buttons + 1] = {{
+            text=_("Cancelar"),
+            icon=actionIcon("bookvault-cancel"),
+            callback=function()
+                closeIf(dialog)
+                cleanup()
+            end,
+        }}
 
         dialog = ButtonDialog:new{
             title=_("Google Imagens · escolher capa"),
             title_align="center",
-            buttons=normalized,
+            buttons=buttons,
             shrink_unneeded_width=true,
         }
         dialog.onCloseWidget = function(self_dialog)
@@ -917,7 +916,6 @@ function M.install(BV)
         end
         UIManager:show(dialog)
     end
-
 
     function BV:markSimpleUIActive()
         if self._bookvault_sui_action then return true end
