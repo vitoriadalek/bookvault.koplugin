@@ -99,7 +99,7 @@ function Header:init()
     self.settings_button = makeIconButton("appbar.settings",
         function() if self.on_settings then self.on_settings() end end, icon_size, pad, self)
 
-    self.close_button = makeIconButton("exit",
+    self.close_button = makeIconButton("close",
         function() if self.on_close then self.on_close() end end, icon_size, pad, self)
     self.close_button.allow_flash = false
     self.right_button = self.settings_button
