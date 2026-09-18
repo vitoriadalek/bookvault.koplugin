@@ -1,22 +1,37 @@
 -- BookVault 3.x action and interaction layer.
 -- Kept scoped to BookVault-created menus: no global KOReader monkey patches.
 
-local ButtonDialog = require("ui/widget/buttondialog")
-local ConfirmBox = require("ui/widget/confirmbox")
-local InfoMessage = require("ui/widget/infomessage")
-local InputDialog = require("ui/widget/inputdialog")
-local PathChooser = require("ui/widget/pathchooser")
-local UIManager = require("ui/uimanager")
-local BookList = require("ui/widget/booklist")
-local DocSettings = require("docsettings")
-local ReadCollection = require("readcollection")
-local DataStorage = require("datastorage")
-local ffiUtil = require("ffi/util")
-local lfs = require("libs/libkoreader-lfs")
-local util = require("util")
-local filemanagerutil = require("apps/filemanager/filemanagerutil")
-local _ = require("gettext")
+-- Keep this action layer out of the plugin bootstrap: load it only when
+-- BookVault is actually used. This prevents a missing optional dependency
+-- from hiding the whole plugin from KOReader.
+local M = {}
+
 local logger = require("logger")
+local _ = require("gettext")
+
+local function safeRequire(module_name)
+    local ok, module = pcall(require, module_name)
+    if ok and module then return module end
+    logger.warn("BookVault: action dependency unavailable:", module_name, module)
+    return nil
+end
+
+local ButtonDialog = safeRequire("ui/widget/buttondialog")
+local ConfirmBox = safeRequire("ui/widget/confirmbox")
+local InfoMessage = safeRequire("ui/widget/infomessage")
+local InputDialog = safeRequire("ui/widget/inputdialog")
+local PathChooser = safeRequire("ui/widget/pathchooser")
+local UIManager = safeRequire("ui/uimanager")
+local BookList = safeRequire("ui/widget/booklist")
+local DocSettings = safeRequire("docsettings")
+local ReadCollection = safeRequire("readcollection")
+local DataStorage = safeRequire("datastorage")
+local ffiUtil = safeRequire("ffi/util")
+local lfs = safeRequire("libs/libkoreader-lfs")
+local util = safeRequire("util")
+local filemanagerutil = safeRequire("apps/filemanager/filemanagerutil")
+local T = ffiUtil and ffiUtil.template
+local N_ = _ .ngettext
 local T = ffiUtil.template
 local N_ = _.ngettext
 
