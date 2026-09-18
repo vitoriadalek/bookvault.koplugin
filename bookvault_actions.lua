@@ -117,6 +117,55 @@ function M.install(BV)
     if BV._bookvault_actions_installed then return end
     BV._bookvault_actions_installed = true
 
+    -- Register a native Simple UI Quick Action as well as supporting the
+    -- older persisted plugin-key action. The registered descriptor captures
+    -- this plugin instance, so it remains callable from Homescreen contexts
+    -- where there is no live FileManager widget to resolve bookvault from.
+    function BV:registerSimpleUIAction()
+        if self._bookvault_sui_registered then return true end
+
+        local ok_qa, QA = pcall(require, "features/sui_quickactions")
+        if not ok_qa or type(QA) ~= "table" or type(QA.register) ~= "function" then
+            return false
+        end
+
+        pcall(require, "bookvault_icons_bootstrap")
+        local descriptor = {
+            id = "bookvault",
+            label = _("BookVault"),
+            icon = "bookvault-cat",
+            is_in_place = false,
+            execute = function()
+                self:showStatusChooser()
+            end,
+        }
+        local ok, err = pcall(QA.register, descriptor)
+        if not ok then
+            logger.warn("BookVault: Simple UI action registration failed", err)
+            return false
+        end
+
+        self._bookvault_sui_registered = true
+        return true
+    end
+
+    local function registerSimpleUIWithRetry()
+        if BV:registerSimpleUIAction() then return end
+        if BV._bookvault_sui_retry then return end
+        BV._bookvault_sui_retry = true
+        local attempts = 0
+        local function retry()
+            BV._bookvault_sui_retry = false
+            attempts = attempts + 1
+            if BV:registerSimpleUIAction() or attempts >= 5 then return end
+            BV._bookvault_sui_retry = true
+            UIManager:scheduleIn(2, retry)
+        end
+        UIManager:scheduleIn(0, retry)
+    end
+
+    registerSimpleUIWithRetry()
+
     -- Privacy is deliberately independent from folder protection.
     local oldLoad = BV.loadSettings
     BV.loadSettings = function(self, ...)
