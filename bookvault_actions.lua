@@ -563,6 +563,7 @@ function M.install(BV)
         end
 
         local row = filemanagerutil.genStatusButtonsRow(doc_settings_or_file, function()
+            if self.invalidateStatusCache then self:invalidateStatusCache(first) end
             refresh(menu)
         end)
         local dialog
