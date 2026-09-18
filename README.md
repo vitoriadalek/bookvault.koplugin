@@ -1,4 +1,4 @@
-# BookVault 3.1.0
+# BookVault 3.2.0
 
 Biblioteca visual para KOReader, projetada para telas e-ink: monocromática, leve, minimalista e integrada às APIs nativas do KOReader.
 
@@ -99,3 +99,19 @@ Renomear, mover e copiar usam as rotinas de metadados do KOReader quando dispon�
 O repositório mantém a estrutura de plugin KOReader e os arquivos de metadados necessários para descoberta pela AppStore comunitária. A versão é publicada no branch padrão para manter a descoberta e atualização do plugin.
 
 Após atualizar pelo AppStore, se uma versão antiga continuar em cache, use **Refresh cache/Atualizar** e reinicie o KOReader.
+
+
+## Interface visual BookVault 3.2
+
+A biblioteca agora usa uma camada visual própria sobre os componentes nativos do KOReader:
+
+- cabeçalho BookVault com gato, título e subtítulo editorial;
+- busca, detalhe lunar, ordenação e configurações no cabeçalho;
+- abas persistentes **Todos / Lendo / Em espera / Concluídos / Não iniciados**;
+- abertura direta na biblioteca, sem a tela intermediária de escolha de categoria;
+- categoria ativa indicada por sublinhado monocromático;
+- categorias respeitam a configuração de categorias visíveis;
+- estado de seleção múltipla refletido no cabeçalho;
+- menu contextual dividido em **Leitura / Organização / Capa e metadados / Arquivo / Extensões**;
+- linguagem visual em preto, branco e cinzas, com linhas finas, espaçamento e tipografia simples;
+- mosaico de capas continua baseado no CoverBrowser/MosaicMenu do KOReader, evitando substituir o motor de renderização por um sistema pesado.
