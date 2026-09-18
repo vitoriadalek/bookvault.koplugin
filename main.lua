@@ -922,19 +922,26 @@ function BookVault:show() self:showStatusChooser() end
 function BookVault:onSuspend() self.unlocked=false end
 function BookVault:onResume() self.unlocked=false end
 function BookVault:init()
-    -- Keep registration alive even if a non-essential UI component fails on
-    -- a particular KOReader build. Simple UI integration must run from this
-    -- live plugin instance, never from the class table.
-    safe(function()
-        self:loadSettings()
+    -- Never let the optional Simple UI integration prevent KOReader from
+    -- loading BookVault itself. The plugin must remain visible in Tools/User
+    -- Plugins even when Simple UI is absent or loads later.
+    local ok_settings, err_settings = pcall(self.loadSettings, self)
+    if not ok_settings then
+        logger.err("BookVault: initial settings load failed", err_settings)
+    end
+
+    local ok_menu, err_menu = pcall(function()
         self.ui.menu:registerToMainMenu(self)
-        if self.registerSimpleUIWithRetry then
-            self:registerSimpleUIWithRetry()
-        end
-        if self.migrateLegacySimpleUIActions then
-            self:migrateLegacySimpleUIActions()
-        end
     end)
+    if not ok_menu then
+        logger.err("BookVault: main-menu registration failed", err_menu)
+    end
+
+    -- Simple UI is optional. Register only from this live BookVault instance
+    -- and retry after Simple UI has finished loading.
+    if self.registerSimpleUIWithRetry then
+        pcall(self.registerSimpleUIWithRetry, self)
+    end
 end
 
 -- Install BookVault actions explicitly on the BookVault class.
