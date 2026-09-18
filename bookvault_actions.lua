@@ -197,11 +197,16 @@ function M.install(BV)
             local kvp = bookinfo.kvp_widget
             if kvp and type(kvp.kv_pairs) == "table" then
                 local filtered = {}
-                local rating_label = _("Rating:")
-                local review_label = _("Review:")
+                local function isRatingOrReviewRow(entry)
+                    if type(entry) ~= "table" or type(entry[1]) ~= "string" then return false end
+                    local label = entry[1]:lower():gsub("%s+", " ")
+                    return label:find("rating", 1, true) ~= nil
+                        or label:find("review", 1, true) ~= nil
+                        or label:find("avalia", 1, true) ~= nil
+                        or label:find("resenha", 1, true) ~= nil
+                end
                 for _, entry in ipairs(kvp.kv_pairs) do
-                    if not (type(entry) == "table" and
-                            (entry[1] == rating_label or entry[1] == review_label)) then
+                    if not isRatingOrReviewRow(entry) then
                         filtered[#filtered + 1] = entry
                     end
                 end
@@ -216,7 +221,7 @@ function M.install(BV)
         end)
     end
 
-    local function collectionNames()    local function collectionNames()
+    local function collectionNames()
         local names = {}
         for name in pairs(ReadCollection.coll or {}) do
             if type(name) == "string" then names[#names + 1] = name end
@@ -855,9 +860,9 @@ function M.install(BV)
 
         for ou, tu in html:gmatch('"ou"%s*:%s*"([^"]+)"%s*,%s*"tu"%s*:%s*"([^"]+)"') do
             addCandidate(ou, tu)
-            if #candidates >= 12 then break end
+            if #candidates >= 6 then break end
         end
-        if #candidates < 12 then
+        if #candidates < 6 then
             for tu, ou in html:gmatch('"tu"%s*:%s*"([^"]+)"[^}]-"ou"%s*:%s*"([^"]+)"') do
                 addCandidate(ou, tu)
                 if #candidates >= 12 then break end
@@ -934,7 +939,7 @@ function M.install(BV)
             return icon_name
         end
 
-        for i = 1, math.min(#candidates, 12) do
+        for i = 1, math.min(#candidates, 6) do
             if #found >= 6 then break end
             local result = candidates[i]
             local thumb_path = base .. "/preview_" .. tostring(os.time()) .. "_" .. tostring(i) .. ".img"
@@ -983,7 +988,8 @@ function M.install(BV)
                     local bookinfo = (fm and fm.bookinfo) or (rui and rui.bookinfo)
                     local applied = false
                     if bookinfo and bookinfo.setCustomCoverFromImage then
-                        applied = pcall(bookinfo.setCustomCoverFromImage, bookinfo, file, out)
+                        local call_ok = pcall(bookinfo.setCustomCoverFromImage, bookinfo, file, out)
+                        applied = call_ok and DocSettings.findCustomCoverFile(file) ~= nil
                     end
                     pcall(os.remove, out)
                     if not applied then
@@ -991,7 +997,7 @@ function M.install(BV)
                         return
                     end
                     UIManager:broadcastEvent(require("ui/event"):new("InvalidateMetadataCache", file))
-                    UIManager:broadcastEvent(require("ui/event"):new("BookMetadataChanged"))
+                    UIManager:broadcastEvent(require("ui/event"):new("BookMetadataChanged", file))
                     if self._last_menu then refresh(self._last_menu) end
                     UIManager:show(InfoMessage:new{ text = _("Capa aplicada.") })
                 end,
