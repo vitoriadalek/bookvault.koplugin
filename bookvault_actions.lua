@@ -729,6 +729,13 @@ function M.install(BV)
         local http = require("socket.http")
         local ltn12 = require("ltn12")
         local socketutil = require("socketutil")
+        local https_ok, https = pcall(require, "ssl.https")
+        local function request(req)
+            if req.url and req.url:match("^https://") and https_ok then
+                return https.request(req)
+            end
+            return http.request(req)
+        end
         local urlmod = require("socket.url")
         local ButtonDialog = require("ui/widget/buttondialog")
         local Screen = require("device").screen
@@ -784,7 +791,7 @@ function M.install(BV)
             end
             socketutil:set_timeout(8, 15)
             local ok, success, code = pcall(function()
-                return http.request{
+                return request{
                     url = target_url,
                     method = "GET",
                     headers = {
@@ -808,7 +815,7 @@ function M.install(BV)
         local html_parts = {}
         socketutil:set_timeout(8, 15)
         local ok, success, code = pcall(function()
-            return http.request{
+            return request{
                 url = search_url,
                 method = "GET",
                 headers = {
