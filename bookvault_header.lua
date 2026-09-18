@@ -56,7 +56,7 @@ function Header:init()
         callback=function() if self.on_search then self.on_search() end end,show_parent=self}
     local moon = IconWidget:new{icon="bookvault-moon",width=small_icon,height=small_icon,dim=true}
     if not self.show_moon then moon:hide() end
-    local sort = IconButton:new{icon="bookvault-sort",width=icon_size,height=icon_size,padding=pad,
+    local sort = IconButton:new{icon=self.show_cat and "bookvault-sort-cat" or "bookvault-sort",width=icon_size,height=icon_size,padding=pad,
         callback=function() if self.on_sort then self.on_sort() end end,show_parent=self}
     local settings = IconButton:new{icon="gear",width=icon_size,height=icon_size,padding=pad,
         callback=function() if self.on_settings then self.on_settings() end end,show_parent=self}
