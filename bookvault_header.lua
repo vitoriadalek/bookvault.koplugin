@@ -17,6 +17,10 @@ local Size = require("ui/size")
 local UIManager = require("ui/uimanager")
 local _ = require("gettext")
 
+local source = (debug.getinfo(1, "S").source or ""):gsub("^@", "")
+local PLUGIN_DIR = source:match("^(.+)/[^/]+$") or "."
+local function actionIcon(name) return PLUGIN_DIR .. "/icons/" .. name .. ".svg" end
+
 local Header = InputContainer:extend{
     width = nil,
     active_status = "all",
@@ -100,22 +104,22 @@ function Header:init()
     self.close_button.allow_flash = false
     self.right_button = self.settings_button
 
-    self.selection_collections = makeIconButton("bookmark",
+    self.selection_collections = makeIconButton(actionIcon("bookvault-collections"),
         function() if self.on_selection_collections then self.on_selection_collections() end end,
         icon_size, pad, self)
-    self.selection_move = makeIconButton("move",
+    self.selection_move = makeIconButton(actionIcon("bookvault-move"),
         function() if self.on_selection_move then self.on_selection_move() end end,
         icon_size, pad, self)
-    self.selection_copy = makeIconButton("copy",
+    self.selection_copy = makeIconButton(actionIcon("bookvault-copy"),
         function() if self.on_selection_copy then self.on_selection_copy() end end,
         icon_size, pad, self)
-    self.selection_delete = makeIconButton("trash",
+    self.selection_delete = makeIconButton(actionIcon("bookvault-trash"),
         function() if self.on_selection_delete then self.on_selection_delete() end end,
         icon_size, pad, self)
-    self.selection_more = makeIconButton("more",
+    self.selection_more = makeIconButton(actionIcon("bookvault-more"),
         function() if self.on_selection_more then self.on_selection_more() end end,
         icon_size, pad, self)
-    self.selection_exit = makeIconButton("check",
+    self.selection_exit = makeIconButton(actionIcon("bookvault-check"),
         function() if self.on_selection_exit then self.on_selection_exit() end end,
         icon_size, pad, self)
 
