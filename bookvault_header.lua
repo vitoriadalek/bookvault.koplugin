@@ -37,6 +37,9 @@ function Header:init()
 
     local close = IconButton:new{icon="back.top",width=icon_size,height=icon_size,padding=pad,
         callback=function() if self.on_close then self.on_close() end end,show_parent=self}
+    -- Compatibility surface expected by KOReader Menu/SortWidget when a custom
+    -- title bar is supplied. Keep these references per instance (no global patch).
+    self.left_button = close
     local logo = IconWidget:new{icon="bookvault-cat",width=small_icon,height=small_icon,dim=true}
     local title = TextWidget:new{text="BookVault",face=Font:getFace("smalltfont",18),bold=true,padding=0}
     local subtitle = TextWidget:new{text=_("biblioteca pessoal"),face=Font:getFace("smallinfofont",11),
@@ -54,6 +57,7 @@ function Header:init()
         callback=function() if self.on_sort then self.on_sort() end end,show_parent=self}
     local settings = IconButton:new{icon="gear",width=icon_size,height=icon_size,padding=pad,
         callback=function() if self.on_settings then self.on_settings() end end,show_parent=self}
+    self.right_button = settings
     local right = HorizontalGroup:new{search,HorizontalSpan:new{width=gap},moon,HorizontalSpan:new{width=gap},sort,
         HorizontalSpan:new{width=gap},settings}
     local top = HorizontalGroup:new{align="center",left,RightContainer:new{
@@ -85,6 +89,33 @@ function Header:init()
             dimen=Geom:new{w=self.width,h=Screen:scaleBySize(1)},VerticalSpan:new{width=0}},
         VerticalSpan:new{width=Screen:scaleBySize(4)}}
     self.dimen=Geom:new{x=0,y=0,w=self.width,h=self[1]:getSize().h}
+end
+
+function Header:setTitle(title)
+    if title then self.title_widget:setText(title) end
+    UIManager:setDirty(self, "ui", self.dimen)
+end
+
+function Header:setSubTitle(subtitle)
+    if subtitle then self.subtitle_widget:setText(subtitle) end
+    UIManager:setDirty(self, "ui", self.dimen)
+end
+
+function Header:setLeftIcon(icon)
+    -- BookVault owns the left icon in this custom header; keep API compatibility.
+end
+
+function Header:setRightIcon(icon)
+    -- BookVault owns the right controls in this custom header; keep API compatibility.
+end
+
+function Header:generateVerticalLayout()
+    -- Menu uses this for keyboard/focus navigation. Expose the actual actionable
+    -- title-bar buttons without requiring the native TitleBar implementation.
+    local layout = {}
+    if self.left_button then table.insert(layout, { self.left_button }) end
+    if self.right_button then table.insert(layout, { self.right_button }) end
+    return layout
 end
 
 function Header:setSelectionCount(count)
