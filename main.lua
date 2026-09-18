@@ -961,22 +961,22 @@ function BookVault:init()
         logger.err("BookVault: main-menu registration failed", err_menu)
     end
 
+    -- The action layer is deliberately loaded only after KOReader has
+    -- registered the BookVault instance. A failure there must never hide the
+    -- plugin from Tools/User Plugins.
+    local ok_actions, actions = pcall(require, "bookvault_actions")
+    if ok_actions and actions and actions.install then
+        local ok_install, err = pcall(actions.install, BookVault)
+        if not ok_install then logger.err("BookVault action layer install failed", err) end
+    else
+        logger.err("BookVault action layer unavailable", actions)
+    end
+
     -- Simple UI is optional. Register only from this live BookVault instance
     -- and retry after Simple UI has finished loading.
     if self.registerSimpleUIWithRetry then
         pcall(self.registerSimpleUIWithRetry, self)
     end
-end
-
--- Install BookVault actions explicitly on the BookVault class.
--- This is intentionally done after the class is fully defined and never by
--- replacing WidgetContainer.extend/BookList.new globally.
-local ok_actions, actions = pcall(require, "bookvault_actions")
-if ok_actions and actions and actions.install then
-    local ok_install, err = pcall(actions.install, BookVault)
-    if not ok_install then logger.err("BookVault action layer install failed", err) end
-else
-    logger.err("BookVault action layer unavailable", actions)
 end
 
 return BookVault
