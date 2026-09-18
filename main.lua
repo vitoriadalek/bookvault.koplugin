@@ -51,14 +51,19 @@ end
 
 function BookVault:openBookVault()
     if not loadImplementation(self) then
-        return
+        logger.err("BookVault: unable to open because implementation could not be loaded")
+        return false
     end
-    if self.show then
-        local ok, err = pcall(self.show, self)
-        if not ok then
-            logger.err("BookVault: failed to open", err)
-        end
+    if type(self.show) ~= "function" then
+        logger.err("BookVault: implementation loaded but show() is unavailable")
+        return false
     end
+    local ok, err = pcall(self.show, self)
+    if not ok then
+        logger.err("BookVault: failed to open", err)
+        return false
+    end
+    return true
 end
 
 function BookVault:addToMainMenu(menu_items)
@@ -70,11 +75,25 @@ function BookVault:addToMainMenu(menu_items)
 end
 
 function BookVault:init()
+    -- init() runs after KOReader has discovered the plugin, so feature modules
+    -- may safely be loaded here without risking plugin discovery.
+    local loaded = loadImplementation(self)
+    if not loaded then
+        logger.err("BookVault: implementation could not be initialized")
+    end
+
     local ok, err = pcall(function()
         self.ui.menu:registerToMainMenu(self)
     end)
     if not ok then
         logger.err("BookVault: main-menu registration failed", err)
+    end
+
+    -- Register the native Simple UI action against this live plugin instance.
+    -- This must happen after the implementation is loaded so the action has a
+    -- real showStatusChooser() callback instead of a dead shortcut.
+    if loaded and type(self.registerSimpleUIWithRetry) == "function" then
+        pcall(self.registerSimpleUIWithRetry, self)
     end
 end
 
