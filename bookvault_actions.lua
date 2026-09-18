@@ -69,6 +69,16 @@ local function findSimpleUIBookVaultAction()
                     return action_id, tabs
                 end
             end
+        elseif type(action_id) == "string" and action_id:match("^open_custom_screen:") then
+            local ok_cs, CustomScreens = pcall(require, "infra/sui_custom_screens")
+            if ok_cs and CustomScreens then
+                local screen_id = action_id:match("^open_custom_screen:(.+)$")
+                local screen = screen_id and CustomScreens.get(screen_id)
+                local label = screen and tostring(screen.name or ""):lower() or ""
+                if label:find("bookvault", 1, true) then
+                    return action_id, tabs
+                end
+            end
         end
     end
     return nil, tabs
