@@ -1,27 +1,13 @@
--- Keep plugin bootstrap minimal: optional UI/document modules are lazy-loaded.
--- A failure in one helper must never prevent KOReader from registering BookVault.
-local function lazyRequire(module_name)
-    local module
+-- Keep plugin bootstrap resilient: a helper module failing to load must not
+-- make KOReader discard the entire BookVault plugin.
+local logger = require("logger")
+local function safeRequire(module_name)
+    local ok, module = pcall(require, module_name)
+    if ok and module then return module end
+    logger.warn("BookVault: optional module unavailable:", module_name, module)
     return setmetatable({}, {
         __index = function(_, key)
-            if not module then
-                local ok, loaded = pcall(require, module_name)
-                if not ok or not loaded then
-                    error("BookVault: unable to load " .. module_name .. ": " .. tostring(loaded))
-                end
-                module = loaded
-            end
-            return module[key]
-        end,
-        __newindex = function(_, key, value)
-            if not module then
-                local ok, loaded = pcall(require, module_name)
-                if not ok or not loaded then
-                    error("BookVault: unable to load " .. module_name .. ": " .. tostring(loaded))
-                end
-                module = loaded
-            end
-            module[key] = value
+            error("BookVault: module unavailable: " .. module_name .. "." .. tostring(key))
         end,
     })
 end
@@ -29,28 +15,26 @@ end
 local DataStorage = require("datastorage")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
-local logger = require("logger")
 local _ = require("gettext")
 
-local ButtonDialog = lazyRequire("ui/widget/buttondialog")
-local Geom = lazyRequire("ui/geometry")
-local HorizontalGroup = lazyRequire("ui/widget/horizontalgroup")
-local HorizontalSpan = lazyRequire("ui/widget/horizontalspan")
-local IconButton = lazyRequire("ui/widget/iconbutton")
-local IconWidget = lazyRequire("ui/widget/iconwidget")
-local RightContainer = lazyRequire("ui/widget/container/rightcontainer")
-local DoubleSpinWidget = lazyRequire("ui/widget/doublespinwidget")
-local InfoMessage = lazyRequire("ui/widget/infomessage")
-local InputDialog = lazyRequire("ui/widget/inputdialog")
-local LuaSettings = lazyRequire("luasettings")
-local PathChooser = lazyRequire("ui/widget/pathchooser")
-local BookList = lazyRequire("ui/widget/booklist")
-local DocumentRegistry = lazyRequire("document/documentregistry")
-local ffiUtil = lazyRequire("ffi/util")
-local lfs = lazyRequire("libs/libkoreader-lfs")
-local sha2 = lazyRequire("ffi/sha2")
-local Screen = lazyRequire("device").screen
-
+local ButtonDialog = safeRequire("ui/widget/buttondialog")
+local Geom = safeRequire("ui/geometry")
+local HorizontalGroup = safeRequire("ui/widget/horizontalgroup")
+local HorizontalSpan = safeRequire("ui/widget/horizontalspan")
+local IconButton = safeRequire("ui/widget/iconbutton")
+local IconWidget = safeRequire("ui/widget/iconwidget")
+local RightContainer = safeRequire("ui/widget/container/rightcontainer")
+local DoubleSpinWidget = safeRequire("ui/widget/doublespinwidget")
+local InfoMessage = safeRequire("ui/widget/infomessage")
+local InputDialog = safeRequire("ui/widget/inputdialog")
+local LuaSettings = safeRequire("luasettings")
+local PathChooser = safeRequire("ui/widget/pathchooser")
+local BookList = safeRequire("ui/widget/booklist")
+local DocumentRegistry = safeRequire("document/documentregistry")
+local ffiUtil = safeRequire("ffi/util")
+local lfs = safeRequire("libs/libkoreader-lfs")
+local sha2 = safeRequire("ffi/sha2")
+local Screen = safeRequire("device").screen
 local BookVault = WidgetContainer:extend{
     name = "bookvault", fullname = _("BookVault"), is_doc_only = false,
     settings_file = DataStorage:getSettingsDir() .. "/bookvault.lua",
