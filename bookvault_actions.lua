@@ -15,13 +15,19 @@ local ffiUtil = require("ffi/util")
 local lfs = require("libs/libkoreader-lfs")
 local util = require("util")
 local filemanagerutil = require("apps/filemanager/filemanagerutil")
-local ReaderUI = require("apps/reader/readerui")
 local _ = require("gettext")
 local logger = require("logger")
 local T = ffiUtil.template
 local N_ = _.ngettext
 
 local M = {}
+
+local function getReaderUI()
+    local ok, ReaderUI = pcall(require, "apps/reader/readerui")
+    if ok and ReaderUI then return ReaderUI end
+    logger.warn("BookVault: ReaderUI unavailable for this action")
+    return nil
+end
 
 local function count(t)
     local n = 0
@@ -333,7 +339,8 @@ function M.install(BV)
     function BV:showBookInfo(item)
         if not item or not item.path then return end
         local fm = require("apps/filemanager/filemanager").instance
-        local rui = ReaderUI.instance
+        local ReaderUI = getReaderUI()
+        local rui = ReaderUI and ReaderUI.instance
         local ui = (fm and fm.bookinfo and fm) or (rui and rui.bookinfo and rui)
         local bookinfo = ui and ui.bookinfo
         if not bookinfo then
