@@ -18,7 +18,7 @@ local UIManager = require("ui/uimanager")
 local _ = require("gettext")
 
 local Header = InputContainer:extend{
-    width = nil, active_status = "all", on_status = nil, on_search = nil,
+    width = nil, active_status = "all", visible_statuses = nil, on_status = nil, on_search = nil,
     on_sort = nil, on_settings = nil, on_close = nil,
 }
 
@@ -59,9 +59,17 @@ function Header:init()
     local top = HorizontalGroup:new{align="center",left,RightContainer:new{
         dimen=Geom:new{x=0,y=0,w=self.width,h=Screen:scaleBySize(52)},right}}
 
-    local tabs = HorizontalGroup:new{align="center"}
-    local tab_width = math.floor(self.width/#STATUS)
+    local visible = {}
     for _,status in ipairs(STATUS) do
+        if not self.visible_statuses or self.visible_statuses[status.key] ~= false then
+            visible[#visible+1] = status
+        end
+    end
+    if #visible == 0 then visible = { STATUS[1] } end
+
+    local tabs = HorizontalGroup:new{align="center"}
+    local tab_width = math.floor(self.width/#visible)
+    for _,status in ipairs(visible) do
         local key = status.key
         local active = self.active_status == key
         local button = Button:new{text=status.label,width=tab_width,height=Screen:scaleBySize(34),bordersize=0,
