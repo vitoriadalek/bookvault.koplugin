@@ -3,6 +3,7 @@ local Button = require("ui/widget/button")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
+local OverlapGroup = require("ui/widget/overlapgroup")
 local IconButton = require("ui/widget/iconbutton")
 local IconWidget = require("ui/widget/iconwidget")
 local InputContainer = require("ui/widget/container/inputcontainer")
@@ -19,7 +20,7 @@ local _ = require("gettext")
 
 local Header = InputContainer:extend{
     width = nil, active_status = "all", visible_statuses = nil, on_status = nil, on_search = nil,
-    on_sort = nil, on_settings = nil, on_close = nil,
+    on_sort = nil, on_settings = nil, on_close = nil, show_cat = true, show_moon = true,
 }
 
 local STATUS = {
@@ -41,6 +42,7 @@ function Header:init()
     -- title bar is supplied. Keep these references per instance (no global patch).
     self.left_button = close
     local logo = IconWidget:new{icon="bookvault-cat",width=small_icon,height=small_icon,dim=true}
+    if not self.show_cat then logo:hide() end
     local title = TextWidget:new{text="BookVault",face=Font:getFace("smalltfont",18),bold=true,padding=0}
     local subtitle = TextWidget:new{text=_("biblioteca pessoal"),face=Font:getFace("smallinfofont",11),
         fgcolor=Blitbuffer.COLOR_DARK_GRAY,padding=0}
@@ -53,6 +55,7 @@ function Header:init()
     local search = IconButton:new{icon="bookvault-search",width=icon_size,height=icon_size,padding=pad,
         callback=function() if self.on_search then self.on_search() end end,show_parent=self}
     local moon = IconWidget:new{icon="bookvault-moon",width=small_icon,height=small_icon,dim=true}
+    if not self.show_moon then moon:hide() end
     local sort = IconButton:new{icon="bookvault-sort",width=icon_size,height=icon_size,padding=pad,
         callback=function() if self.on_sort then self.on_sort() end end,show_parent=self}
     local settings = IconButton:new{icon="gear",width=icon_size,height=icon_size,padding=pad,
@@ -60,8 +63,17 @@ function Header:init()
     self.right_button = settings
     local right = HorizontalGroup:new{search,HorizontalSpan:new{width=gap},moon,HorizontalSpan:new{width=gap},sort,
         HorizontalSpan:new{width=gap},settings}
-    local top = HorizontalGroup:new{align="center",left,RightContainer:new{
-        dimen=Geom:new{x=0,y=0,w=self.width,h=Screen:scaleBySize(52)},right}}
+    -- Use an overlap layout here. A full-width RightContainer inside a
+    -- HorizontalGroup would increase the measured width and push the actions
+    -- outside the screen on e-ink devices. This keeps both sides visible.
+    local top = OverlapGroup:new{
+        dimen=Geom:new{x=0,y=0,w=self.width,h=Screen:scaleBySize(52)},
+        left,
+        RightContainer:new{
+            dimen=Geom:new{x=0,y=0,w=self.width,h=Screen:scaleBySize(52)},
+            right,
+        },
+    }
 
     local visible = {}
     for _,status in ipairs(STATUS) do
