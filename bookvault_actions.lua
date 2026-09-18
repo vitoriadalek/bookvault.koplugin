@@ -656,7 +656,7 @@ function M.install(BV)
 
         local dialog
         local buttons = {
-            {{text = _("Abrir livro"), icon = "bookvault-open", callback = function()
+            {{text = _("Abrir livro"), icon = "book.opened", callback = function()
                 closeIf(dialog)
                 self:guard(item.path, function()
                     if lfs.attributes(item.path,"mode") ~= "file" then
@@ -666,7 +666,7 @@ function M.install(BV)
                     filemanagerutil.openFile(self.ui, item.path)
                 end)
             end}},
-            {{text = _("Informações do livro"), icon = "bookvault-info", callback = function()
+            {{text = _("Informações do livro"), icon = "notice-info", callback = function()
                 closeIf(dialog)
                 self:showBookInfo(item)
             end}},
@@ -682,15 +682,15 @@ function M.install(BV)
                 closeIf(dialog)
                 self:enterSelection(menu, item)
             end}},
-            {{text = _("Renomear"), icon = "bookvault-edit", callback = function()
+            {{text = _("Renomear"), icon = "edit", callback = function()
                 closeIf(dialog)
                 self:renameBook(item, menu)
             end}},
-            {{text = _("Buscar capa no Google Imagens"), icon = "bookvault-search-action", callback = function()
+            {{text = _("Buscar capa no Google Imagens"), icon = "search", callback = function()
                 closeIf(dialog)
                 self:searchGoogleImagesForCover(item.path)
             end}},
-            {{text = _("Abrir localização"), icon = "bookvault-folder", callback = function()
+            {{text = _("Abrir localização"), icon = "folder", callback = function()
                 closeIf(dialog)
                 local dir = item.path:match("^(.*)/[^/]+$")
                 local fm = require("apps/filemanager/filemanager").instance
