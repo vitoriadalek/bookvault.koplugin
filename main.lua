@@ -189,6 +189,7 @@ end
 function BookVault:invalidateLibraryCache()
     self._bookvault_scan_cache = nil
     self._bookvault_scan_cache_key = nil
+    self._bookvault_status_index = nil
 end
 
 function BookVault:invalidateStatusCache(file)
@@ -198,6 +199,7 @@ function BookVault:invalidateStatusCache(file)
     else
         self._bookvault_status_cache = {}
     end
+    self._bookvault_status_index = nil
 end
 
 function BookVault:getBookStatusCached(file)
@@ -251,6 +253,32 @@ function BookVault:scanBooks(include_private)
     self._bookvault_scan_cache_key = cache_key
     self._bookvault_scan_cache = result
     return copyItems(result)
+end
+
+function BookVault:getStatusIndex(include_private)
+    self:loadSettings()
+    local root = self:getRoot()
+    local scan_key = root and (root .. "|" .. (include_private and "1" or "0")) or nil
+    local cache = self._bookvault_status_index
+    if cache and cache.scan_key == scan_key and cache.scan_ref == self._bookvault_scan_cache then
+        return cache.by_status
+    end
+
+    local by_status = { all = {}, reading = {}, abandoned = {}, complete = {}, new = {} }
+    local all_items = self:scanBooks(include_private)
+    by_status.all = all_items
+    for _, item in ipairs(all_items) do
+        local status = self:getBookStatusCached(item.path) or "new"
+        if not by_status[status] then status = "new" end
+        by_status[status][#by_status[status] + 1] = item
+    end
+
+    self._bookvault_status_index = {
+        scan_key = scan_key,
+        scan_ref = self._bookvault_scan_cache,
+        by_status = by_status,
+    }
+    return by_status
 end
 
 function BookVault:getStatusLabel(status)
@@ -664,14 +692,8 @@ function BookVault:changeCategory(menu, status)
     -- Reuse the already scanned library and the existing mosaic menu.
     -- Switching a status must not close/recreate the whole BookVault screen.
     local include_private = self.privacyIncludePrivate and self:privacyIncludePrivate() or false
-    local all_items = self:scanBooks(include_private)
-    local filtered = {}
-    for _, item in ipairs(all_items) do
-        local current = self:getBookStatusCached(item.path)
-        if status == "all" or current == status then
-            filtered[#filtered + 1] = item
-        end
-    end
+    local by_status = self:getStatusIndex(include_private)
+    local filtered = by_status[status] or by_status.all or {}
 
     local view_key = "status:" .. status
     menu._bookvault_view_key = view_key
@@ -682,7 +704,6 @@ function BookVault:changeCategory(menu, status)
 
     self:loadSettings()
     self.settings.data.last_status = status
-    self:saveSettings()
 
     local header = menu._bookvault_header
     if header and header.setActiveStatus then
@@ -813,13 +834,9 @@ function BookVault:showCollectionVisibilityChooser()
 end
 function BookVault:showLibrary(status,include_private)
     safe(function()
-        local items={}
-        for _,item in ipairs(self:scanBooks(include_private)) do
-            local s=self:getBookStatusCached(item.path)
-            if status=="all" or s==status then items[#items+1]=item end
-        end
+        local by_status = self:getStatusIndex(include_private)
+        local items = by_status[status] or by_status.all or {}
         self.settings.data.last_status=status
-        self:saveSettings()
         local menu=self:makeBookMenu("bookvault_library_"..status,_("BookVault"),items,"status:"..status)
         if not menu then return end
         UIManager:show(menu)
