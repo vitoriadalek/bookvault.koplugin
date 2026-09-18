@@ -56,46 +56,6 @@ local function makeIconButton(icon, callback, icon_size, pad, parent)
     }
 end
 
-function Header:_buildTabs()
-    local visible = {}
-    for _,status in ipairs(STATUS) do
-        if not self.visible_statuses or self.visible_statuses[status.key] ~= false then
-            visible[#visible+1] = status
-        end
-    end
-    if #visible == 0 then visible = { STATUS[1] } end
-
-    local tabs = HorizontalGroup:new{align="center"}
-    local tab_width = math.floor(self.width/#visible)
-    for _,status in ipairs(visible) do
-        local key = status.key
-        local active = self.active_status == key
-        local button = Button:new{
-            text=status.label,
-            width=tab_width,
-            height=Screen:scaleBySize(34),
-            bordersize=0,
-            padding=Screen:scaleBySize(3),
-            text_font_face="NotoSans-Regular.ttf",
-            text_font_size=12,
-            text_font_bold=active,
-            callback=function() if self.on_status then self.on_status(key) end end,
-            show_parent=self,
-        }
-        if button.label_widget then
-            button.label_widget.fgcolor=active and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_DARK_GRAY
-        end
-        table.insert(tabs,UnderlineContainer:new{
-            padding=0,
-            linesize=active and Size.line.thick or 0,
-            color=Blitbuffer.COLOR_BLACK,
-            dimen=Geom:new{w=tab_width,h=Screen:scaleBySize(36)},
-            button,
-        })
-    end
-    self.tabs = tabs
-end
-
 function Header:init()
     self.width = self.width or Screen:getWidth()
     local icon_size = Screen:scaleBySize(25)
@@ -133,7 +93,7 @@ function Header:init()
     self.sort_button = makeIconButton(self.show_cat and "bookvault-sort-cat" or "bookvault-sort",
         function() if self.on_sort then self.on_sort() end end, icon_size, pad, self)
 
-    self.settings_button = makeIconButton("bookvault-gear",
+    self.settings_button = makeIconButton("bookvault-settings",
         function() if self.on_settings then self.on_settings() end end, icon_size, pad, self)
 
     self.close_button = makeIconButton("close",
@@ -169,12 +129,49 @@ function Header:init()
 
     self:rebuildTop()
 
-    self:_buildTabs()
+    local visible = {}
+    for _,status in ipairs(STATUS) do
+        if not self.visible_statuses or self.visible_statuses[status.key] ~= false then
+            visible[#visible+1] = status
+        end
+    end
+    if #visible == 0 then visible = { STATUS[1] } end
+
+    local tabs = HorizontalGroup:new{align="center"}
+    local tab_width = math.floor(self.width/#visible)
+    for _,status in ipairs(visible) do
+        local key = status.key
+        local active = self.active_status == key
+        local button = Button:new{
+            text=status.label,
+            width=tab_width,
+            height=Screen:scaleBySize(34),
+            bordersize=0,
+            padding=Screen:scaleBySize(3),
+            text_font_face="NotoSans-Regular.ttf",
+            text_font_size=12,
+            text_font_bold=active,
+            callback=function() if self.on_status then self.on_status(key) end end,
+            show_parent=self,
+        }
+        if button.label_widget then
+            button.label_widget.fgcolor=active and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_DARK_GRAY
+        end
+        table.insert(tabs,UnderlineContainer:new{
+            padding=0,
+            linesize=active and Size.line.thick or 0,
+            color=Blitbuffer.COLOR_BLACK,
+            dimen=Geom:new{w=tab_width,h=Screen:scaleBySize(36)},
+            button,
+        })
+    end
+
+    self.tabs = tabs
     self[1]=VerticalGroup:new{
         align="left",
         self.top_widget,
         VerticalSpan:new{width=Screen:scaleBySize(5)},
-        self.tabs,
+        tabs,
         UnderlineContainer:new{
             padding=0,
             linesize=Size.line.thin,
@@ -252,17 +249,6 @@ end
 
 function Header:setSubTitle(subtitle)
     if subtitle then self.subtitle_widget:setText(subtitle) end
-    UIManager:setDirty(self, "ui", self.dimen)
-end
-
-function Header:setActiveStatus(status)
-    if not status then return end
-    self.active_status = status
-    self:_buildTabs()
-    if self[1] then
-        self[1][3] = self.tabs
-        self.dimen.h = self[1]:getSize().h
-    end
     UIManager:setDirty(self, "ui", self.dimen)
 end
 
