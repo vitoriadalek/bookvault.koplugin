@@ -699,30 +699,33 @@ function M.install(BV)
             return #u < 4096
         end
 
-        local function requestToFile(target_url, output, max_bytes)
-            local f = io.open(output, "wb")
-            if not f then return false, _("Não foi possível criar o arquivo temporário.") end
+        local function requestToFile(target_url, output_base, max_bytes)
             local total = 0
+            local file_handle
             local sink = function(chunk, err)
                 if not chunk then
-                    f:close()
+                    if file_handle then file_handle:close() end
                     return 1
                 end
                 total = total + #chunk
                 if total > max_bytes then
-                    f:close()
+                    if file_handle then file_handle:close() end
                     return nil, "response too large"
                 end
-                local ok_write = f:write(chunk)
-                if not ok_write then
-                    f:close()
+                if not file_handle then
+                    file_handle = io.open(output_base, "wb")
+                    if not file_handle then return nil, "open failed" end
+                end
+                if not file_handle:write(chunk) then
+                    file_handle:close()
+                    file_handle = nil
                     return nil, "write failed"
                 end
                 return 1
             end
 
             socketutil:set_timeout(8, 15)
-            local ok, success, code = pcall(function()
+            local ok, success, code, headers = pcall(function()
                 return http.request{
                     url=target_url,
                     method="GET",
@@ -735,17 +738,14 @@ function M.install(BV)
                 }
             end)
             socketutil:reset_timeout()
-            if not ok or success ~= 1 or tonumber(code) ~= 200 then
-                pcall(f.close, f)
-                pcall(os.remove, output)
-                return false, "http"
+            if file_handle then pcall(file_handle.close, file_handle) end
+            if not ok or success ~= 1 or tonumber(code) ~= 200 or total <= 0 then
+                pcall(os.remove, output_base)
+                return false, nil
             end
-            if total <= 0 then
-                pcall(os.remove, output)
-                return false, "empty"
-            end
-            return true
+            return true, headers and tostring(headers["content-type"] or ""):lower()
         end
+
 
         UIManager:show(InfoMessage:new{ text=_("Pesquisando capas…") })
 
@@ -833,11 +833,19 @@ function M.install(BV)
             temp_files = {}
         end
 
+        local row
         for i, result in ipairs(found) do
-            local thumb_path = base .. "/thumb_" .. tostring(os.time()) .. "_" .. tostring(i) .. ".img"
-            local ok_thumb = requestToFile(result.thumb, thumb_path, 350 * 1024)
+            local stem = base .. "/thumb_" .. tostring(os.time()) .. "_" .. tostring(i)
+            local ok_thumb, content_type = requestToFile(result.thumb, stem .. ".tmp", 350 * 1024)
             if ok_thumb then
+                local ext = content_type and content_type:match("image/([%w%+%-]+)")
+                ext = (ext == "jpeg" and "jpg") or ext
+                if ext ~= "jpg" and ext ~= "png" and ext ~= "webp" then ext = "jpg" end
+                local thumb_path = stem .. "." .. ext
+                os.remove(thumb_path)
+                os.rename(stem .. ".tmp", thumb_path)
                 temp_files[#temp_files+1] = thumb_path
+
                 local button = {
                     icon=thumb_path,
                     icon_width=thumb_w,
@@ -847,21 +855,24 @@ function M.install(BV)
                     callback=function()
                         if dialog then UIManager:close(dialog) end
                         cleanup()
-                        local out = base .. "/cover_" .. tostring(os.time()) .. "_" .. tostring(i) .. ".img"
-                        local ok_full = requestToFile(result.original, out, 8 * 1024 * 1024)
+                        local full_stem = base .. "/cover_" .. tostring(os.time()) .. "_" .. tostring(i)
+                        local ok_full, full_type = requestToFile(result.original, full_stem .. ".tmp", 8 * 1024 * 1024)
                         if not ok_full then
                             UIManager:show(InfoMessage:new{text=_("Não foi possível baixar a capa escolhida.")})
                             return
                         end
-                        local ui = self.ui or ReaderUI.instance
+                        local full_ext = full_type and full_type:match("image/([%w%+%-]+)")
+                        full_ext = (full_ext == "jpeg" and "jpg") or full_ext
+                        if full_ext ~= "jpg" and full_ext ~= "png" and full_ext ~= "webp" then full_ext = "jpg" end
+                        local out = full_stem .. "." .. full_ext
+                        os.remove(out)
+                        os.rename(full_stem .. ".tmp", out)
+
+                        local fm = package.loaded["apps/filemanager/filemanager"]
+                        local ui = self.ui or (fm and fm.instance) or ReaderUI.instance
                         local applied = false
                         if ui and ui.bookinfo and ui.bookinfo.setCustomCoverFromImage then
                             applied = pcall(ui.bookinfo.setCustomCoverFromImage, ui.bookinfo, file, out)
-                        else
-                            local ok_fm, fm_info = pcall(require, "apps/filemanager/filemanager").instance
-                            if ok_fm and fm_info and fm_info.bookinfo and fm_info.bookinfo.setCustomCoverFromImage then
-                                applied = pcall(fm_info.bookinfo.setCustomCoverFromImage, fm_info.bookinfo, file, out)
-                            end
                         end
                         pcall(os.remove, out)
                         if applied then
@@ -873,24 +884,16 @@ function M.install(BV)
                         end
                     end,
                 }
+
                 if i % cols == 1 then
-                    buttons[#buttons+1] = {button}
+                    row = {button}
+                    buttons[#buttons+1] = row
                 else
-                    buttons[#buttons] = buttons[#buttons] or {}
-                    buttons[#buttons+1] = button
+                    row[#row+1] = button
                 end
             end
         end
 
-        -- Fix row construction if an odd number of previews was downloaded.
-        local normalized = {}
-        for _, row in ipairs(buttons) do
-            if row.text or row.icon then
-                normalized[#normalized+1] = {row}
-            else
-                normalized[#normalized+1] = row
-            end
-        end
 
         if #normalized == 0 then
             cleanup()
