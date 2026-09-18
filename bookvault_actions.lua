@@ -364,6 +364,9 @@ function M.install(BV)
                         pcall(DocSettings.updateLocation, file, dest)
                         pcall(function() require("readhistory"):updateItem(file, dest) end)
                         BookList.resetBookInfoCache(file)
+                        if self.invalidateLibraryCache then self:invalidateLibraryCache() end
+                        if self.invalidateBookMetadataCache then self:invalidateBookMetadataCache(file); self:invalidateBookMetadataCache(dest) end
+                        if self.invalidateStatusCache then self:invalidateStatusCache(file); self:invalidateStatusCache(dest) end
                         item.path, item.filepath, item.text = dest, dest, name
                         refresh(menu)
                     else
@@ -404,6 +407,9 @@ function M.install(BV)
                         end
                         if ok then changed = changed + 1 else failed = failed + 1 end
                     end
+                end
+                if changed > 0 and owner.invalidateLibraryCache then
+                    owner:invalidateLibraryCache()
                 end
                 if failed > 0 then
                     UIManager:show(InfoMessage:new{
@@ -608,6 +614,10 @@ function M.install(BV)
             summary.status = status
             local saved = filemanagerutil.saveSummary(ds, summary)
             BookList.setBookInfoCacheProperty(file, "status", status)
+            if self.invalidateStatusCache then
+                self._bookvault_status_cache = self._bookvault_status_cache or {}
+                self._bookvault_status_cache[file] = status
+            end
             if saved then ds = saved end
         end
         refresh(menu)
@@ -1097,6 +1107,7 @@ function M.install(BV)
                         return
                     end
 
+                    if self.invalidateBookMetadataCache then self:invalidateBookMetadataCache(file) end
                     UIManager:broadcastEvent(Event:new("InvalidateMetadataCache", file))
                     UIManager:broadcastEvent(Event:new("BookMetadataChanged", file))
                     if self._last_menu then refresh(self._last_menu) end
