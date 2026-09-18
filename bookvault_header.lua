@@ -133,7 +133,7 @@ function Header:init()
     self.sort_button = makeIconButton(self.show_cat and "bookvault-sort-cat" or "bookvault-sort",
         function() if self.on_sort then self.on_sort() end end, icon_size, pad, self)
 
-    self.settings_button = makeIconButton("bookvault-settings",
+    self.settings_button = makeIconButton("bookvault-gear",
         function() if self.on_settings then self.on_settings() end end, icon_size, pad, self)
 
     self.close_button = makeIconButton("close",
