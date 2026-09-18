@@ -1,4 +1,4 @@
-# BookVault 3.4.1
+# BookVault 3.4.2
 
 Biblioteca visual para KOReader, projetada para telas e-ink: monocromática, leve, minimalista e integrada às APIs nativas do KOReader.
 
@@ -14,6 +14,7 @@ Biblioteca visual para KOReader, projetada para telas e-ink: monocromática, lev
 - Ordenação por título, autor, acessados recentemente, modificados recentemente, tamanho e páginas, com direção persistente.
 - Ordem personalizada persistente por status e coleção.
 - Categorias: Todos, Lendo, Em espera, Concluídos e Não iniciados.
+- Integração com a Quick Action nativa do Simple UI; a ação registrada mantém a instância do BookVault disponível mesmo quando a tela inicial não tem um FileManager ativo.
 - Quando integrado à barra inferior do SimpleUI por uma ação personalizada do BookVault, o plugin marca essa ação como módulo ativo enquanto a biblioteca está aberta.
 
 ## Ações por livro
@@ -119,3 +120,10 @@ A busca é totalmente sob demanda e não roda durante a varredura da biblioteca.
 - A capa é aplicada pelo mecanismo nativo de capa personalizada do KOReader.
 - Nenhum EPUB é modificado automaticamente.
 - Nenhuma busca é executada em segundo plano.
+
+## Desempenho
+
+- O índice de status é derivado uma vez por varredura e reutilizado entre trocas de categoria.
+- Trocar de categoria não faz flush do arquivo de configurações a cada toque.
+- Alterações reais de status invalidam o índice derivado para a próxima consulta.
+- A lista escaneada e o cache de status continuam sendo reutilizados e invalidados quando necessário.
