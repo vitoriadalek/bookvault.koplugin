@@ -618,12 +618,13 @@ function M.install(BV)
             summary.status = status
             local saved = filemanagerutil.saveSummary(ds, summary)
             BookList.setBookInfoCacheProperty(file, "status", status)
-            if self.invalidateStatusCache then
-                self._bookvault_status_cache = self._bookvault_status_cache or {}
-                self._bookvault_status_cache[file] = status
-            end
+            self._bookvault_status_cache = self._bookvault_status_cache or {}
+            self._bookvault_status_cache[file] = status
             if saved then ds = saved end
         end
+        -- Batch status changes invalidate the derived category index once,
+        -- rather than forcing every selected file to rebuild it.
+        self._bookvault_status_index = nil
         refresh(menu)
     end
 
