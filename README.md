@@ -1,45 +1,101 @@
-# BookVault 3.0.0
+# BookVault 3.1.0
 
-Biblioteca visual para KOReader, feita para organizar uma biblioteca pessoal em um mosaico de capas reais sem substituir globalmente o FileManager, FileChooser, ReaderUI ou CoverBrowser.
+Biblioteca visual para KOReader, projetada para telas e-ink: monocromática, leve, minimalista e integrada às APIs nativas do KOReader.
 
-## Recursos
+## Interface
 
-- Mosaico real de capas usando os componentes atuais do CoverBrowser/MosaicMenu do KOReader.
-- Categorias: Todos, Lendo, Em espera, Concluídos e Não iniciados.
-- Coleções nativas do KOReader.
-- Pesquisa visível na barra superior, por nome do arquivo e, quando disponível, título/autor dos metadados.
-- Ordenação visível na barra superior por título, autor, mais recentes, modificados recentemente, tamanho e páginas, com direção persistente.
-- Ordem personalizada persistente por status e por coleção.
+- Mosaico real de capas usando CoverBrowser/MosaicMenu do KOReader.
+- Identidade visual BookVault em preto, branco e cinzas, com ícones PNG leves.
+- Barra superior própria com identidade, busca, detalhe lunar, ordenação e configurações.
 - Grade de capas personalizável para retrato e paisagem.
-- Identidade visual BookVault com PNGs leves e transparentes.
-- Barra superior compatível com gerações do KOReader que não exibem `custom_title_bar`.
-- Paginação e indicadores de progresso/status preservados pelo MosaicMenu nativo.
-- Senha numérica com salt/hash.
-- Proteção de pastas integrada ao File Browser por instância, sem monkey patch global das classes do KOReader.
-- Privacidade independente da proteção, com `Privacidade: ON/OFF`.
-- Seleção múltipla e ações em lote.
-- Menu contextual por livro.
-- Informações completas do livro reutilizando o BookInfo nativo do KOReader.
-- Edição de metadados e capas pela infraestrutura nativa do KOReader.
-- Busca de capas sob demanda no Google Imagens.
-- Adicionar/remover livros de coleções diretamente pelo BookVault.
-- Ações de plugins compatíveis.
-- Renomear, copiar, mover, excluir e abrir localização pelo menu do livro.
+- Paginação e indicadores nativos de progresso/status preservados.
+- Busca visível por nome do arquivo e, quando disponível, título/autor dos metadados.
+- Ordenação por título, autor, acessados recentemente, modificados recentemente, tamanho e páginas, com direção persistente.
+- Ordem personalizada persistente por status e coleção.
+- Categorias: Todos, Lendo, Em espera, Concluídos e Não iniciados.
 
-## 3.0.0 — ações, metadados, privacidade e proteção
+## Ações por livro
 
-A nova camada de ações fica isolada em `bookvault_actions.lua`, preservando o núcleo visual estável. Operações de rede para capas só são executadas quando solicitadas pelo usuário; o scan normal da biblioteca não faz buscas externas.
+- Toque abre o livro.
+- Pressão longa abre o menu contextual BookVault.
+- Informações do livro usando o BookInfo nativo do KOReader.
+- Edição de metadados pela tela nativa de informações do livro, inclusive campos personalizados suportados pelo KOReader.
+- Adicionar capa quando não houver capa.
+- Alterar capa quando já houver capa.
+- Busca de capas no Google Imagens somente quando solicitada, com escolha do resultado antes da aplicação.
+- Status de leitura.
+- Coleções.
+- Selecionar vários.
+- Renomear.
+- Copiar.
+- Mover.
+- Abrir localização.
+- Excluir.
+- Mais ações/plugins.
 
-A privacidade e a proteção são conceitos diferentes: privacidade controla visibilidade no BookVault; proteção exige senha para acessar/navegar em pastas protegidas no File Browser quando o BookVault estiver carregado nessa instância.
+## Seleção múltipla
 
-## Estabilidade
+- Pressão longa entra no modo de seleção.
+- Seleção/desseleção individual sem abrir livros.
+- Abrir o primeiro selecionado.
+- Alterar status.
+- Adicionar/remover vários livros de coleções.
+- Criar coleção.
+- Mover vários.
+- Copiar vários.
+- Excluir vários.
+- Sair do modo de seleção.
+- A seleção é mantida apenas na tela ativa e não cria trabalho em segundo plano.
 
-A integração visual continua lazy e por instância. O BookVault não substitui globalmente FileManager, FileChooser, ReaderUI ou CoverBrowser.
+## Coleções
 
-Se os módulos do CoverBrowser não estiverem disponíveis, o BookVault usa o BookList padrão em vez de falhar no carregamento.
+O BookVault reutiliza as coleções nativas do KOReader:
 
-A lógica visual continua usando `BookInfoManager`/`MosaicMenu` do KOReader, incluindo cache de capas, progresso e indicadores nativos.
+- visualizar coleções dentro do BookVault;
+- adicionar/remover um livro;
+- adicionar/remover vários livros;
+- selecionar múltiplas coleções;
+- criar uma coleção;
+- preservar as coleções fora do BookVault.
+
+## Privacidade
+
+A privacidade é independente da proteção de pastas.
+
+- **Privacidade: ON** — conteúdo marcado como privado fica oculto no BookVault.
+- **Privacidade: OFF** — conteúdo privado pode ser revelado após autenticação.
+- Ativar/desativar não exige senha para esconder novamente.
+- A senha numérica usa salt/hash.
+- Ao suspender/retomar o plugin, o estado desbloqueado é encerrado.
+
+## Pastas protegidas
+
+- Pastas protegidas exigem senha quando acessadas por interfaces do KOReader nas quais o BookVault está presente e pode instalar a proteção por instância.
+- Subpastas são abrangidas pela regra de caminho.
+- Proteção e privacidade são estados independentes.
+- A integração evita substituir globalmente classes como WidgetContainer, BookList, FileManager ou FileChooser.
+
+**Limite importante:** um plugin normal do KOReader não deve interceptar de forma global toda abertura de arquivo, SimpleUI e todas as interfaces de terceiros sem hooks globais/user patches. O BookVault prioriza estabilidade e não usa monkey patches globais para tentar simular essa cobertura.
+
+## Operações de arquivos
+
+Renomear, mover e copiar usam as rotinas de metadados do KOReader quando disponíveis, incluindo a atualização/migração do sidecar e da leitura. Excluir também limpa os metadados associados pela infraestrutura nativa antes de remover o arquivo.
+
+## Desempenho e estabilidade
+
+- Nenhuma busca de capa durante o scan normal.
+- Rede carregada apenas quando a busca de capa é solicitada.
+- Módulos visuais pesados são carregados sob demanda.
+- Cache e metadados são consultados somente quando necessários.
+- O mosaico continua usando componentes nativos do KOReader.
+- Nenhum monkey patch global é usado.
+- A falha de módulos visuais não impede o carregamento: há fallback para BookList padrão.
+- Ações são instaladas diretamente na classe BookVault e nos menus criados pelo próprio BookVault.
+- Operações potencialmente destrutivas pedem confirmação.
+- Alterações de arquivo só acontecem após ação explícita do usuário.
 
 ## AppStore
 
-O repositório mantém a estrutura de plugin KOReader e os tópicos de descoberta usados pela AppStore comunitária. A instalação pode usar o branch `main`; a AppStore mantém cache local e pode exigir atualização/refresh do catálogo antes de mostrar uma nova versão.
+O repositório mantém a estrutura de plugin KOReader e os arquivos de metadados necessários para descoberta pela AppStore comunitária. A versão é publicada no branch padrão para manter a descoberta e atualização do plugin.
+
+Após atualizar pelo AppStore, se uma versão antiga continuar em cache, use **Refresh cache/Atualizar** e reinicie o KOReader.
