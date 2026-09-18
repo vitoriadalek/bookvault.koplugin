@@ -162,9 +162,49 @@ function M.install(BV)
     -- cover handling and compatibility across KOReader versions.
     function BV:showBookInfo(item)
         if not item or not item.path then return end
+        local fm = require("apps/filemanager/filemanager").instance
+        local rui = ReaderUI.instance
+        local ui = (fm and fm.bookinfo and fm) or (rui and rui.bookinfo and rui)
+        local bookinfo = ui and ui.bookinfo
+        if not bookinfo then
+            UIManager:show(InfoMessage:new{ text = _("As informações do livro não estão disponíveis nesta tela.") })
+            return
+        end
         safe(function()
-            local BookVaultBookInfo = require("bookvault_bookinfo")
-            BookVaultBookInfo.show(self.ui or require("apps/filemanager/filemanager").instance, item.path)
+            local file = item.path
+            local book_props
+            if fm and fm.coverbrowser and fm.coverbrowser.getBookInfo then
+                book_props = fm.coverbrowser:getBookInfo(file)
+            end
+            local doc_settings_or_file = file
+            if BookList.hasBookBeenOpened(file) then
+                doc_settings_or_file = BookList.getDocSettings(file)
+                if not book_props then
+                    book_props = doc_settings_or_file:readSetting("doc_props")
+                end
+            end
+            bookinfo:show(doc_settings_or_file, book_props and bookinfo.extendProps(book_props, file))
+
+            -- Keep KOReader's native metadata page, but remove only the
+            -- Rating/Review rows requested by BookVault. This is instance-scoped.
+            local kvp = bookinfo.kvp_widget
+            if kvp and type(kvp.kv_pairs) == "table" then
+                local filtered = {}
+                local rating_label = _("Rating:")
+                local review_label = _("Review:")
+                for _, entry in ipairs(kvp.kv_pairs) do
+                    if not (type(entry) == "table" and
+                            (entry[1] == rating_label or entry[1] == review_label)) then
+                        filtered[#filtered + 1] = entry
+                    end
+                end
+                kvp.kv_pairs = filtered
+                if kvp.items_per_page and kvp._populateItems then
+                    kvp.pages = math.max(1, math.ceil(#filtered / kvp.items_per_page))
+                    kvp.show_page = math.min(kvp.show_page or 1, kvp.pages)
+                    kvp:_populateItems()
+                end
+            end
         end)
     end
 
@@ -410,6 +450,13 @@ function M.install(BV)
         })
     end
 
+    function BV:copyOrMoveBookSelection(menu, move)
+        local selected = menu and menu._bookvault_selected or {}
+        if not next(selected or {}) then return end
+        copyOrMove(self, menu, selected, move)
+    end
+
+
     function BV:enterSelection(menu, item)
         menu._bookvault_selection_mode = true
         menu._bookvault_selected = {}
@@ -428,8 +475,13 @@ function M.install(BV)
         else
             menu._bookvault_selected[item.path] = true
         end
+        local n = count(menu._bookvault_selected)
+        if n == 0 then
+            self:leaveSelection(menu)
+            return
+        end
         if menu._bookvault_header and menu._bookvault_header.setSelectionCount then
-            menu._bookvault_header:setSelectionCount(count(menu._bookvault_selected))
+            menu._bookvault_header:setSelectionCount(n)
         end
         refresh(menu)
     end
@@ -663,259 +715,251 @@ function M.install(BV)
     end
 
     function BV:searchGoogleImagesForCover(file)
+        -- Network is loaded lazily and only when the user explicitly asks for a cover.
         local http = require("socket.http")
         local ltn12 = require("ltn12")
         local socketutil = require("socketutil")
+        local urlmod = require("socket.url")
         local ButtonDialog = require("ui/widget/buttondialog")
         local Screen = require("device").screen
 
         local props = getProps(self, file)
         local title = props.title or props.display_title or basename(file):gsub("%.[^%.]+$", "")
         local authors = props.authors or ""
-        local query = (tostring(title) .. " " .. tostring(authors)):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
-        local encoded = query:gsub("([^%w%-_%.~])", function(ch)
-            return string.format("%%%02X", string.byte(ch))
-        end)
-        local url = "https://www.google.com/search?tbm=isch&safe=active&q=" .. encoded
+        if type(authors) == "table" then authors = table.concat(authors, " ") end
+        local query = tostring(title or "") .. " " .. tostring(authors or "")
+        query = query:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+        if query == "" then
+            UIManager:show(InfoMessage:new{ text = _("Não foi possível determinar o título do livro.") })
+            return
+        end
 
-        local function decodeUrl(u)
-            if not u then return nil end
-            u = u:gsub("\\/", "/")
-            u = u:gsub("\\u003d", "="):gsub("\\u0026", "&")
-            u = u:gsub("\\u003F", "?"):gsub("\\u002f", "/")
-            u = u:gsub("&#x3[Dd];", "="):gsub("&#x2[6&];", "&")
+        local search_url = "https://www.google.com/search?tbm=isch&safe=active&hl=pt-BR&q="
+            .. urlmod.escape(query)
+
+        local function normalize_url(u)
+            if type(u) ~= "string" or u == "" then return nil end
+            u = u:gsub("\\\\/", "/")
+            u = u:gsub("\\\\u003d", "="):gsub("\\\\u0026", "&")
+            u = u:gsub("\\\\u002f", "/")
             u = u:gsub("&amp;", "&")
-            u = u:gsub('\\"', '"')
+            u = u:gsub("^%s+", ""):gsub("%s+$", "")
+            local ok, decoded = pcall(urlmod.unescape, u)
+            if ok and decoded and decoded ~= "" then u = decoded end
+            if not u:match("^https?://") then return nil end
+            if u:find("google%.com/search", 1) then return nil end
+            if #u > 4096 then return nil end
             return u
         end
 
-        local function validImageUrl(u)
-            if type(u) ~= "string" or u == "" then return false end
-            if not u:match("^https?://") then return false end
-            if u:find("google%.com/search", 1) then return false end
-            if #u > 4096 then return false end
-            return true
-        end
-
-        local function requestToFile(target_url, output_base, max_bytes)
+        local function requestToFile(target_url, output, max_bytes)
+            local f = io.open(output, "wb")
+            if not f then return false end
             local total = 0
-            local file_handle
             local sink = function(chunk)
                 if not chunk then
-                    if file_handle then file_handle:close() end
+                    f:close()
                     return 1
                 end
                 total = total + #chunk
                 if total > max_bytes then
-                    if file_handle then file_handle:close() end
+                    f:close()
                     return nil, "response too large"
                 end
-                if not file_handle then
-                    file_handle = io.open(output_base, "wb")
-                    if not file_handle then return nil, "open failed" end
-                end
-                if not file_handle:write(chunk) then
-                    file_handle:close()
-                    file_handle = nil
+                if not f:write(chunk) then
+                    f:close()
                     return nil, "write failed"
                 end
                 return 1
             end
-
             socketutil:set_timeout(8, 15)
-            local ok, success, code, headers = pcall(function()
+            local ok, success, code = pcall(function()
                 return http.request{
-                    url=target_url,
-                    method="GET",
-                    headers={
-                        ["User-Agent"]="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
-                        ["Accept"]="image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-                        ["Accept-Encoding"]="identity",
+                    url = target_url,
+                    method = "GET",
+                    headers = {
+                        ["User-Agent"] = "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36",
+                        ["Accept"] = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                        ["Accept-Encoding"] = "identity",
                     },
-                    sink=sink,
+                    sink = sink,
                 }
             end)
             socketutil:reset_timeout()
-            if file_handle then pcall(file_handle.close, file_handle) end
             if not ok or success ~= 1 or tonumber(code) ~= 200 or total <= 0 then
-                pcall(os.remove, output_base)
-                return false, nil
+                pcall(os.remove, output)
+                return false
             end
-            return true, headers and tostring(headers["content-type"] or ""):lower()
+            return true
         end
 
-        local function addResult(found, seen, original, thumb)
-            original, thumb = decodeUrl(original), decodeUrl(thumb)
-            if not validImageUrl(original) then return end
-            if not validImageUrl(thumb) then thumb = original end
-            if seen[original] then return end
-            seen[original] = true
-            found[#found + 1] = { original=original, thumb=thumb }
-        end
-
-        UIManager:show(InfoMessage:new{ text=_("Pesquisando capas…") })
+        UIManager:show(InfoMessage:new{ text = _("Pesquisando capas…") })
 
         local html_parts = {}
         socketutil:set_timeout(8, 15)
         local ok, success, code = pcall(function()
             return http.request{
-                url=url,
-                method="GET",
-                headers={
-                    ["User-Agent"]="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
-                    ["Accept"]="text/html,application/xhtml+xml",
-                    ["Accept-Encoding"]="identity",
-                    ["Accept-Language"]="pt-BR,pt;q=0.9,en;q=0.8",
+                url = search_url,
+                method = "GET",
+                headers = {
+                    ["User-Agent"] = "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36",
+                    ["Accept"] = "text/html,application/xhtml+xml",
+                    ["Accept-Encoding"] = "identity",
+                    ["Accept-Language"] = "pt-BR,pt;q=0.9,en;q=0.8",
                 },
-                sink=ltn12.sink.table(html_parts),
+                sink = ltn12.sink.table(html_parts),
             }
         end)
         socketutil:reset_timeout()
 
         if not ok or success ~= 1 or tonumber(code) ~= 200 then
-            UIManager:show(InfoMessage:new{ text=_("O Google Imagens não respondeu corretamente.") })
+            UIManager:show(InfoMessage:new{ text = _("O Google Imagens não respondeu corretamente.") })
             return
         end
 
         local html = table.concat(html_parts)
-        if html == "" or html:find("unusual traffic", 1, true) or html:find("consent.google.com", 1, true) then
-            UIManager:show(InfoMessage:new{ text=_("O Google Imagens não disponibilizou resultados para esta pesquisa.") })
+        if html == "" or html:find("unusual traffic", 1, true)
+                or html:find("consent.google.com", 1, true) then
+            UIManager:show(InfoMessage:new{ text = _("O Google Imagens não disponibilizou resultados para esta pesquisa.") })
             return
         end
 
-        local found, seen = {}, {}
-
-        -- Current Google Images still exposes compact metadata objects containing
-        -- the original URL ("ou") and generated thumbnail ("tu"). We parse those
-        -- objects directly instead of depending on file extensions in the HTML.
-        for meta in html:gmatch('<div[^>]-class="rg_meta"[^>]*>(%b{})</div>') do
-            local ou = meta:match('"ou"%s*:%s*"([^"]+)"')
-            local tu = meta:match('"tu"%s*:%s*"([^"]+)"')
-            addResult(found, seen, ou, tu)
-            if #found >= 6 then break end
+        local candidates, seen = {}, {}
+        local function addCandidate(original, thumb)
+            original = normalize_url(original)
+            thumb = normalize_url(thumb)
+            if not original then return end
+            if seen[original] then return end
+            seen[original] = true
+            candidates[#candidates + 1] = {
+                original = original,
+                thumb = thumb or original,
+            }
         end
 
-        if #found < 6 then
-            for ou, tu in html:gmatch('"ou"%s*:%s*"([^"]+)"[^}]-"tu"%s*:%s*"([^"]+)"') do
-                addResult(found, seen, ou, tu)
-                if #found >= 6 then break end
+        for ou, tu in html:gmatch('"ou"%s*:%s*"([^"]+)"%s*,%s*"tu"%s*:%s*"([^"]+)"') do
+            addCandidate(ou, tu)
+            if #candidates >= 12 then break end
+        end
+        if #candidates < 12 then
+            for tu, ou in html:gmatch('"tu"%s*:%s*"([^"]+)"[^}]-"ou"%s*:%s*"([^"]+)"') do
+                addCandidate(ou, tu)
+                if #candidates >= 12 then break end
+            end
+        end
+        if #candidates < 12 then
+            for encoded in html:gmatch("[?&]imgurl=([^&\"']+)") do
+                addCandidate(encoded, nil)
+                if #candidates >= 12 then break end
+            end
+        end
+        if #candidates < 12 then
+            for u in html:gmatch("https?://[^%s\"<>]+") do
+                u = normalize_url(u)
+                if u and not seen[u] then
+                    local lower = u:lower()
+                    if lower:find("%.jpg") or lower:find("%.jpeg") or lower:find("%.png")
+                            or lower:find("%.webp") or lower:find("%.gif")
+                            or lower:find("cover") or lower:find("image") then
+                        addCandidate(u, nil)
+                    end
+                end
+                if #candidates >= 12 then break end
             end
         end
 
-        if #found < 6 then
-            for ou in html:gmatch('"ou"%s*:%s*"([^"]+)"') do
-                addResult(found, seen, ou, ou)
-                if #found >= 6 then break end
-            end
-        end
-
-        if #found == 0 then
+        if #candidates == 0 then
             UIManager:show(InfoMessage:new{
-                text=_("Nenhuma capa utilizável foi encontrada. Tente novamente ou verifique a conexão."),
+                text = _("Nenhuma capa foi encontrada. Tente novamente ou verifique a conexão."),
             })
             return
         end
 
         local base = DataStorage:getDataDir() .. "/bookvault/covers"
         pcall(util.makePath, base)
-        local temp_files = {}
-        local buttons = {}
-        local cols = 2
-        local thumb_w = math.min(Screen:scaleBySize(170), math.floor(Screen:getWidth() / 2) - Screen:scaleBySize(35))
-        local thumb_h = Screen:scaleBySize(220)
-        local dialog
+        local temp_files, found = {}, {}
 
         local function cleanup()
             for _, path in ipairs(temp_files) do pcall(os.remove, path) end
             temp_files = {}
         end
 
-        local row
-        for i, result in ipairs(found) do
-            local stem = base .. "/thumb_" .. tostring(os.time()) .. "_" .. tostring(i)
-            local ok_thumb, content_type = requestToFile(result.thumb, stem .. ".tmp", 350 * 1024)
-            if ok_thumb then
-                local ext = content_type and content_type:match("image/([%w%+%-]+)")
-                ext = (ext == "jpeg" and "jpg") or ext
-                if ext ~= "jpg" and ext ~= "png" and ext ~= "webp" then ext = "jpg" end
-                local thumb_path = stem .. "." .. ext
-                os.remove(thumb_path)
-                os.rename(stem .. ".tmp", thumb_path)
+        for i = 1, math.min(#candidates, 12) do
+            if #found >= 6 then break end
+            local result = candidates[i]
+            local thumb_path = base .. "/preview_" .. tostring(os.time()) .. "_" .. tostring(i) .. ".img"
+            if requestToFile(result.thumb, thumb_path, 300 * 1024) then
                 temp_files[#temp_files + 1] = thumb_path
-
-                local button = {
-                    icon=thumb_path,
-                    icon_width=thumb_w,
-                    icon_height=thumb_h,
-                    text=tostring(i),
-                    font_size=12,
-                    callback=function()
-                        if dialog then UIManager:close(dialog) end
-                        cleanup()
-
-                        local full_stem = base .. "/cover_" .. tostring(os.time()) .. "_" .. tostring(i)
-                        local ok_full, full_type = requestToFile(result.original, full_stem .. ".tmp", 8 * 1024 * 1024)
-                        if not ok_full then
-                            UIManager:show(InfoMessage:new{text=_("Não foi possível baixar a capa escolhida.")})
-                            return
-                        end
-
-                        local full_ext = full_type and full_type:match("image/([%w%+%-]+)")
-                        full_ext = (full_ext == "jpeg" and "jpg") or full_ext
-                        if full_ext ~= "jpg" and full_ext ~= "png" and full_ext ~= "webp" then full_ext = "jpg" end
-                        local out = full_stem .. "." .. full_ext
-                        os.remove(out)
-                        os.rename(full_stem .. ".tmp", out)
-
-                        local fm = package.loaded["apps/filemanager/filemanager"]
-                        local ui = self.ui or (fm and fm.instance) or ReaderUI.instance
-                        local applied = false
-                        if ui and ui.bookinfo and ui.bookinfo.setCustomCoverFromImage then
-                            applied = pcall(ui.bookinfo.setCustomCoverFromImage, ui.bookinfo, file, out)
-                        end
-                        pcall(os.remove, out)
-
-                        if applied then
-                            UIManager:broadcastEvent(require("ui/event"):new("InvalidateMetadataCache", file))
-                            if self._last_menu then refresh(self._last_menu) end
-                            UIManager:show(InfoMessage:new{text=_("Capa aplicada.")})
-                        else
-                            UIManager:show(InfoMessage:new{text=_("Não foi possível aplicar esta capa nesta tela.")})
-                        end
-                    end,
-                }
-
-                if i % cols == 1 then
-                    row = {button}
-                    buttons[#buttons + 1] = row
-                else
-                    row[#row + 1] = button
-                end
+                found[#found + 1] = { original = result.original, thumb = thumb_path }
             end
         end
 
-        if #buttons == 0 then
+        if #found == 0 then
             cleanup()
-            UIManager:show(InfoMessage:new{text=_("As prévias das capas não puderam ser carregadas.")})
+            UIManager:show(InfoMessage:new{
+                text = _("As capas foram encontradas, mas nenhuma prévia pôde ser carregada."),
+            })
             return
         end
 
-        buttons[#buttons + 1] = {{
-            text=_("Cancelar"),
-            icon=actionIcon("bookvault-cancel"),
-            callback=function()
+        local dialog
+        local rows = {}
+        local current_row
+        for i, result in ipairs(found) do
+            if not current_row or #current_row >= 2 then
+                current_row = {}
+                rows[#rows + 1] = current_row
+            end
+            current_row[#current_row + 1] = {
+                text = tostring(i),
+                icon = result.thumb,
+                icon_width = math.min(Screen:scaleBySize(150), math.floor(Screen:getWidth() / 2) - Screen:scaleBySize(30)),
+                icon_height = Screen:scaleBySize(200),
+                callback = function()
+                    closeIf(dialog)
+                    cleanup()
+                    local out = base .. "/selected_" .. tostring(os.time()) .. "_" .. tostring(i) .. ".img"
+                    local ok_full = requestToFile(result.original, out, 8 * 1024 * 1024)
+                    if not ok_full then
+                        UIManager:show(InfoMessage:new{ text = _("Não foi possível baixar a capa escolhida.") })
+                        return
+                    end
+                    local fm = require("apps/filemanager/filemanager").instance
+                    local rui = ReaderUI.instance
+                    local bookinfo = (fm and fm.bookinfo) or (rui and rui.bookinfo)
+                    local applied = false
+                    if bookinfo and bookinfo.setCustomCoverFromImage then
+                        applied = pcall(bookinfo.setCustomCoverFromImage, bookinfo, file, out)
+                    end
+                    pcall(os.remove, out)
+                    if not applied then
+                        UIManager:show(InfoMessage:new{ text = _("Não foi possível aplicar esta capa nesta tela.") })
+                        return
+                    end
+                    UIManager:broadcastEvent(require("ui/event"):new("InvalidateMetadataCache", file))
+                    UIManager:broadcastEvent(require("ui/event"):new("BookMetadataChanged"))
+                    if self._last_menu then refresh(self._last_menu) end
+                    UIManager:show(InfoMessage:new{ text = _("Capa aplicada.") })
+                end,
+            }
+        end
+
+        rows[#rows + 1] = {{
+            text = _("Cancelar"),
+            icon = "close",
+            callback = function()
                 closeIf(dialog)
                 cleanup()
             end,
         }}
 
         dialog = ButtonDialog:new{
-            title=_("Google Imagens · escolher capa"),
-            title_align="center",
-            buttons=buttons,
-            shrink_unneeded_width=true,
+            title = _("Google Imagens · escolher capa"),
+            title_align = "center",
+            buttons = rows,
+            shrink_unneeded_width = true,
         }
-        dialog.onCloseWidget = function(self_dialog)
+        dialog.onCloseWidget = function()
             cleanup()
         end
         UIManager:show(dialog)
@@ -927,18 +971,33 @@ function M.install(BV)
         if not action_id then return false end
         local fm = package.loaded["apps/filemanager/filemanager"]
         local fm_instance = fm and fm.instance
-        local sui = fm_instance and fm_instance._simpleui_plugin
-        if not sui then
-            local rui = package.loaded["apps/reader/readerui"]
-            sui = rui and rui.instance and rui.instance.simpleui
-        end
+        local rui = package.loaded["apps/reader/readerui"]
+        local sui = (fm_instance and fm_instance._simpleui_plugin)
+            or (rui and rui.instance and rui.instance.simpleui)
+        if not sui then return false end
         local ok_bb, BB = pcall(require, "screens/sui_bottombar")
-        if not sui or not ok_bb or not BB or not BB.setTempTabActive then return false end
+        if not ok_bb or not BB then return false end
+
         self._bookvault_sui_action = action_id
         self._bookvault_sui_prev_action = sui.active_action
         self._bookvault_sui_plugin = sui
-        pcall(BB.setTempTabActive, sui, action_id, true, self._bookvault_sui_prev_action)
-        return true
+
+        local refreshed = false
+        if BB.setActiveAndRefreshFM then
+            refreshed = pcall(BB.setActiveAndRefreshFM, sui, action_id, tabs)
+        end
+        if not refreshed and BB.setTempTabActive then
+            pcall(BB.setTempTabActive, sui, action_id, true, self._bookvault_sui_prev_action)
+            refreshed = true
+        end
+        if refreshed then
+            sui.active_action = action_id
+            return true
+        end
+        self._bookvault_sui_action = nil
+        self._bookvault_sui_prev_action = nil
+        self._bookvault_sui_plugin = nil
+        return false
     end
 
     function BV:restoreSimpleUIActive()
@@ -946,9 +1005,18 @@ function M.install(BV)
         local sui = self._bookvault_sui_plugin
         if not action_id or not sui then return end
         local prev = self._bookvault_sui_prev_action
+        local tabs = select(2, findSimpleUIBookVaultAction())
         local ok_bb, BB = pcall(require, "screens/sui_bottombar")
-        if ok_bb and BB and BB.setTempTabActive then
-            pcall(BB.setTempTabActive, sui, action_id, false, prev)
+        if ok_bb and BB then
+            local restored = false
+            if BB.setActiveAndRefreshFM and prev then
+                restored = pcall(BB.setActiveAndRefreshFM, sui, prev, tabs)
+            end
+            if not restored and BB.setTempTabActive then
+                pcall(BB.setTempTabActive, sui, action_id, false, prev)
+                restored = true
+            end
+            if restored then sui.active_action = prev end
         end
         self._bookvault_sui_action = nil
         self._bookvault_sui_prev_action = nil
@@ -959,7 +1027,7 @@ function M.install(BV)
         if menu then UIManager:close(menu) end
     end
 
-    -- Scope all interactions to the menu instance returned by BookVault.    -- Scope all interactions to the menu instance returned by BookVault.
+    -- Scope all interactions to the menu instance returned by BookVault.
     local oldMake = BV.makeBookMenu
     BV.makeBookMenu = function(self, ...)
         local menu = oldMake(self, ...)
