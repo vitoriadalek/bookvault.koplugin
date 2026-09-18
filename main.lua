@@ -923,10 +923,17 @@ function BookVault:onSuspend() self.unlocked=false end
 function BookVault:onResume() self.unlocked=false end
 function BookVault:init()
     -- Keep registration alive even if a non-essential UI component fails on
-    -- a particular KOReader build.
+    -- a particular KOReader build. Simple UI integration must run from this
+    -- live plugin instance, never from the class table.
     safe(function()
         self:loadSettings()
         self.ui.menu:registerToMainMenu(self)
+        if self.registerSimpleUIWithRetry then
+            self:registerSimpleUIWithRetry()
+        end
+        if self.migrateLegacySimpleUIActions then
+            self:migrateLegacySimpleUIActions()
+        end
     end)
 end
 
