@@ -16,10 +16,6 @@ local lfs = require("libs/libkoreader-lfs")
 local util = require("util")
 local filemanagerutil = require("apps/filemanager/filemanagerutil")
 local ReaderUI = require("apps/reader/readerui")
-local socket = require("socket")
-local http = require("socket.http")
-local ltn12 = require("ltn12")
-local socketutil = require("socketutil")
 local _ = require("gettext")
 local logger = require("logger")
 local T = ffiUtil.template
@@ -624,6 +620,10 @@ function M.install(BV)
     end
 
     function BV:searchGoogleImagesForCover(file)
+        local socket = require("socket")
+        local http = require("socket.http")
+        local ltn12 = require("ltn12")
+        local socketutil = require("socketutil")
         local props = getProps(self, file)
         local title = props.title or props.display_title or basename(file):gsub("%.[^%.]+$", "")
         local authors = props.authors or ""
