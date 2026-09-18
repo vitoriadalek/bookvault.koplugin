@@ -88,6 +88,11 @@ function BookVault:loadSettings()
     d.appearance = d.appearance or {}
     if type(d.visible_statuses) ~= "table" then
         d.visible_statuses = { all=true, reading=true, abandoned=true, complete=true, new=true }
+    else
+        -- Older BookVault versions did not persist the complete category.
+        -- Add it only when the key is genuinely absent; an explicit user choice
+        -- to hide it is preserved.
+        if d.visible_statuses.complete == nil then d.visible_statuses.complete = true end
     end
     if type(d.visible_collections) ~= "table" then d.visible_collections = {} end
     local visible = d.visible_statuses
@@ -562,6 +567,8 @@ function BookVault:makeBookMenu(name,title,items,view_key)
         width=Screen:getWidth(),
         active_status=active_status,
         visible_statuses=self.settings.data.visible_statuses,
+        show_cat=appearance.show_cat,
+        show_moon=appearance.show_moon,
         on_status=status_cb,
         on_search=search_cb,
         on_sort=sort_cb,
