@@ -451,6 +451,8 @@ function M.install(BV)
                     end
                     pcall(ReadCollection.removeItem, ReadCollection, file, nil, true)
                     BookList.resetBookInfoCache(file)
+                    if self.invalidateBookMetadataCache then self:invalidateBookMetadataCache(file) end
+                    if self.invalidateStatusCache then self:invalidateStatusCache(file) end
                 end
                 pcall(ReadCollection.write, ReadCollection)
                 pcall(function() require("readhistory"):clearMissing() end)
@@ -460,6 +462,7 @@ function M.install(BV)
                     })
                 end
                 if menu then
+                    self:invalidateLibraryCache()
                     self:leaveSelection(menu)
                     menu._bookvault_source_items = self:scanBooks(self:privacyIncludePrivate())
                     menu.item_table = menu._bookvault_source_items
