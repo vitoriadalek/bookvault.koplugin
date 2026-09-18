@@ -11,7 +11,6 @@ local RightContainer = require("ui/widget/container/rightcontainer")
 local TextWidget = require("ui/widget/textwidget")
 local UnderlineContainer = require("ui/widget/container/underlinecontainer")
 local VerticalGroup = require("ui/widget/verticalgroup")
-local VerticalSpan = require("ui/widget/verticalspan")
 local Font = require("ui/font")
 local Screen = require("device").screen
 local Size = require("ui/size")
@@ -19,15 +18,42 @@ local UIManager = require("ui/uimanager")
 local _ = require("gettext")
 
 local Header = InputContainer:extend{
-    width = nil, active_status = "all", visible_statuses = nil, on_status = nil, on_search = nil,
-    on_sort = nil, on_settings = nil, on_close = nil, show_cat = true, show_moon = true,
+    width = nil,
+    active_status = "all",
+    visible_statuses = nil,
+    on_status = nil,
+    on_search = nil,
+    on_sort = nil,
+    on_settings = nil,
+    on_close = nil,
+    on_selection_collections = nil,
+    on_selection_move = nil,
+    on_selection_copy = nil,
+    on_selection_delete = nil,
+    on_selection_more = nil,
+    on_selection_exit = nil,
+    show_cat = true,
+    show_moon = true,
 }
 
 local STATUS = {
-    { key="all", label=_("Todos") }, { key="reading", label=_("Lendo") },
-    { key="abandoned", label=_("Em espera") }, { key="complete", label=_("Concluídos") },
+    { key="all", label=_("Todos") },
+    { key="reading", label=_("Lendo") },
+    { key="abandoned", label=_("Em espera") },
+    { key="complete", label=_("Concluídos") },
     { key="new", label=_("Não iniciados") },
 }
+
+local function makeIconButton(icon, callback, icon_size, pad, parent)
+    return IconButton:new{
+        icon=icon,
+        width=icon_size,
+        height=icon_size,
+        padding=pad,
+        callback=callback,
+        show_parent=parent,
+    }
+end
 
 function Header:init()
     self.width = self.width or Screen:getWidth()
@@ -35,45 +61,72 @@ function Header:init()
     local small_icon = Screen:scaleBySize(19)
     local gap = Screen:scaleBySize(2)
     local pad = Screen:scaleBySize(5)
+    local top_h = Screen:scaleBySize(52)
 
-    local close = IconButton:new{icon="back.top",width=icon_size,height=icon_size,padding=pad,
-        callback=function() if self.on_close then self.on_close() end end,show_parent=self}
-    -- Compatibility surface expected by KOReader Menu/SortWidget when a custom
-    -- title bar is supplied. Keep these references per instance (no global patch).
-    self.left_button = close
-    local logo = IconWidget:new{icon="bookvault-cat",width=small_icon,height=small_icon,dim=true}
-    if not self.show_cat then logo:hide() end
-    local title = TextWidget:new{text="BookVault",face=Font:getFace("smalltfont",18),bold=true,padding=0}
-    local subtitle = TextWidget:new{text=_("biblioteca pessoal"),face=Font:getFace("smallinfofont",11),
-        fgcolor=Blitbuffer.COLOR_DARK_GRAY,padding=0}
+    self.left_button = nil
+
+    local title = TextWidget:new{
+        text="BookVault",
+        face=Font:getFace("smalltfont",18),
+        bold=true,
+        padding=0,
+    }
+    local subtitle = TextWidget:new{
+        text=_("biblioteca pessoal"),
+        face=Font:getFace("smallinfofont",11),
+        fgcolor=Blitbuffer.COLOR_DARK_GRAY,
+        padding=0,
+    }
     self.title_widget = title
     self.subtitle_widget = subtitle
-    local identity = VerticalGroup:new{align="left",title,subtitle}
-    local left = HorizontalGroup:new{close,HorizontalSpan:new{width=gap},logo,
-        HorizontalSpan:new{width=Screen:scaleBySize(7)},identity}
 
-    local search = IconButton:new{icon="bookvault-search",width=icon_size,height=icon_size,padding=pad,
-        callback=function() if self.on_search then self.on_search() end end,show_parent=self}
-    local moon = IconWidget:new{icon="bookvault-moon",width=small_icon,height=small_icon,dim=true}
-    if not self.show_moon then moon:hide() end
-    local sort = IconButton:new{icon=self.show_cat and "bookvault-sort-cat" or "bookvault-sort",width=icon_size,height=icon_size,padding=pad,
-        callback=function() if self.on_sort then self.on_sort() end end,show_parent=self}
-    local settings = IconButton:new{icon="gear",width=icon_size,height=icon_size,padding=pad,
-        callback=function() if self.on_settings then self.on_settings() end end,show_parent=self}
-    self.right_button = settings
-    local right = HorizontalGroup:new{search,HorizontalSpan:new{width=gap},moon,HorizontalSpan:new{width=gap},sort,
-        HorizontalSpan:new{width=gap},settings}
-    -- Use an overlap layout here. A full-width RightContainer inside a
-    -- HorizontalGroup would increase the measured width and push the actions
-    -- outside the screen on e-ink devices. This keeps both sides visible.
-    local top = OverlapGroup:new{
-        dimen=Geom:new{x=0,y=0,w=self.width,h=Screen:scaleBySize(52)},
-        left,
-        RightContainer:new{
-            dimen=Geom:new{x=0,y=0,w=self.width,h=Screen:scaleBySize(52)},
-            right,
-        },
+    self.search_button = makeIconButton("bookvault-search",
+        function() if self.on_search then self.on_search() end end, icon_size, pad, self)
+    self.moon_widget = IconWidget:new{
+        icon="bookvault-moon",
+        width=small_icon,
+        height=small_icon,
+        dim=true,
     }
+    if not self.show_moon then self.moon_widget:hide() end
+    self.sort_button = makeIconButton(self.show_cat and "bookvault-sort-cat" or "bookvault-sort",
+        function() if self.on_sort then self.on_sort() end end, icon_size, pad, self)
+
+    self.settings_button = makeIconButton("appbar.settings",
+        function() if self.on_settings then self.on_settings() end end, icon_size, pad, self)
+
+    self.close_button = makeIconButton("exit",
+        function() if self.on_close then self.on_close() end end, icon_size, pad, self)
+    self.close_button.allow_flash = false
+    self.right_button = self.settings_button
+
+    self.selection_collections = makeIconButton("bookmark",
+        function() if self.on_selection_collections then self.on_selection_collections() end end,
+        icon_size, pad, self)
+    self.selection_move = makeIconButton("move",
+        function() if self.on_selection_move then self.on_selection_move() end end,
+        icon_size, pad, self)
+    self.selection_copy = makeIconButton("copy",
+        function() if self.on_selection_copy then self.on_selection_copy() end end,
+        icon_size, pad, self)
+    self.selection_delete = makeIconButton("trash",
+        function() if self.on_selection_delete then self.on_selection_delete() end end,
+        icon_size, pad, self)
+    self.selection_more = makeIconButton("more",
+        function() if self.on_selection_more then self.on_selection_more() end end,
+        icon_size, pad, self)
+    self.selection_exit = makeIconButton("check",
+        function() if self.on_selection_exit then self.on_selection_exit() end end,
+        icon_size, pad, self)
+
+    self.selection_collections.allow_flash = false
+    self.selection_move.allow_flash = false
+    self.selection_copy.allow_flash = false
+    self.selection_delete.allow_flash = false
+    self.selection_more.allow_flash = false
+    self.selection_exit.allow_flash = false
+
+    self:rebuildTop()
 
     local visible = {}
     for _,status in ipairs(STATUS) do
@@ -88,19 +141,104 @@ function Header:init()
     for _,status in ipairs(visible) do
         local key = status.key
         local active = self.active_status == key
-        local button = Button:new{text=status.label,width=tab_width,height=Screen:scaleBySize(34),bordersize=0,
-            padding=Screen:scaleBySize(3),text_font_face="NotoSans-Regular.ttf",text_font_size=12,
-            text_font_bold=active,callback=function() if self.on_status then self.on_status(key) end end,show_parent=self}
-        if button.label_widget then button.label_widget.fgcolor=active and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_DARK_GRAY end
-        table.insert(tabs,UnderlineContainer:new{padding=0,linesize=active and Size.line.thick or 0,
-            color=Blitbuffer.COLOR_BLACK,dimen=Geom:new{w=tab_width,h=Screen:scaleBySize(36)},button})
+        local button = Button:new{
+            text=status.label,
+            width=tab_width,
+            height=Screen:scaleBySize(34),
+            bordersize=0,
+            padding=Screen:scaleBySize(3),
+            text_font_face="NotoSans-Regular.ttf",
+            text_font_size=12,
+            text_font_bold=active,
+            callback=function() if self.on_status then self.on_status(key) end end,
+            show_parent=self,
+        }
+        if button.label_widget then
+            button.label_widget.fgcolor=active and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_DARK_GRAY
+        end
+        table.insert(tabs,UnderlineContainer:new{
+            padding=0,
+            linesize=active and Size.line.thick or 0,
+            color=Blitbuffer.COLOR_BLACK,
+            dimen=Geom:new{w=tab_width,h=Screen:scaleBySize(36)},
+            button,
+        })
     end
 
-    self[1]=VerticalGroup:new{align="left",top,VerticalSpan:new{width=Screen:scaleBySize(5)},tabs,
-        UnderlineContainer:new{padding=0,linesize=Size.line.thin,color=Blitbuffer.COLOR_LIGHT_GRAY,
-            dimen=Geom:new{w=self.width,h=Screen:scaleBySize(1)},VerticalSpan:new{width=0}},
-        VerticalSpan:new{width=Screen:scaleBySize(4)}}
+    self.tabs = tabs
+    self[1]=VerticalGroup:new{
+        align="left",
+        self.top_widget,
+        VerticalSpan:new{width=Screen:scaleBySize(5)},
+        tabs,
+        UnderlineContainer:new{
+            padding=0,
+            linesize=Size.line.thin,
+            color=Blitbuffer.COLOR_LIGHT_GRAY,
+            dimen=Geom:new{w=self.width,h=Screen:scaleBySize(1)},
+            VerticalSpan:new{width=0},
+        },
+        VerticalSpan:new{width=Screen:scaleBySize(4)},
+    }
     self.dimen=Geom:new{x=0,y=0,w=self.width,h=self[1]:getSize().h}
+end
+
+function Header:rebuildTop()
+    local top_h = Screen:scaleBySize(52)
+    local gap = Screen:scaleBySize(2)
+    local top = OverlapGroup:new{
+        dimen=Geom:new{x=0,y=0,w=self.width,h=top_h},
+    }
+
+    local left_logo = IconWidget:new{
+        icon="bookvault-cat",
+        width=Screen:scaleBySize(19),
+        height=Screen:scaleBySize(19),
+        dim=true,
+    }
+    if not self.show_cat then left_logo:hide() end
+    local identity = VerticalGroup:new{align="left",self.title_widget,self.subtitle_widget}
+    top[1]=HorizontalGroup:new{
+        left_logo,
+        HorizontalSpan:new{width=Screen:scaleBySize(7)},
+        identity,
+    }
+
+    local right
+    if self.selection_mode then
+        right = HorizontalGroup:new{
+            self.selection_collections,
+            HorizontalSpan:new{width=gap},
+            self.selection_move,
+            HorizontalSpan:new{width=gap},
+            self.selection_copy,
+            HorizontalSpan:new{width=gap},
+            self.selection_delete,
+            HorizontalSpan:new{width=gap},
+            self.selection_more,
+            HorizontalSpan:new{width=gap},
+            self.selection_exit,
+        }
+    else
+        right = HorizontalGroup:new{
+            self.search_button,
+            HorizontalSpan:new{width=gap},
+            self.moon_widget,
+            HorizontalSpan:new{width=gap},
+            self.sort_button,
+            HorizontalSpan:new{width=gap},
+            self.settings_button,
+            HorizontalSpan:new{width=gap},
+            self.close_button,
+        }
+    end
+
+    top[2]=RightContainer:new{
+        dimen=Geom:new{x=0,y=0,w=self.width,h=top_h},
+        right,
+    }
+    self.top_widget=top
+    if self[1] then self[1][1]=top end
 end
 
 function Header:setTitle(title)
@@ -114,31 +252,29 @@ function Header:setSubTitle(subtitle)
 end
 
 function Header:setLeftIcon(icon)
-    -- BookVault owns the left icon in this custom header; keep API compatibility.
 end
 
 function Header:setRightIcon(icon)
-    -- BookVault owns the right controls in this custom header; keep API compatibility.
 end
 
 function Header:generateVerticalLayout()
-    -- Menu uses this for keyboard/focus navigation. Expose the actual actionable
-    -- title-bar buttons without requiring the native TitleBar implementation.
-    local layout = {}
-    if self.left_button then table.insert(layout, { self.left_button }) end
-    if self.right_button then table.insert(layout, { self.right_button }) end
-    return layout
+    if self.selection_mode then
+        return {{self.selection_collections, self.selection_move, self.selection_copy,
+            self.selection_delete, self.selection_more, self.selection_exit}}
+    end
+    return {{self.search_button, self.sort_button, self.settings_button, self.close_button}}
 end
 
 function Header:setSelectionCount(count)
-    if not self.title_widget or not self.subtitle_widget then return end
-    if count and count > 0 then
+    self.selection_mode = count and count > 0
+    if self.selection_mode then
         self.title_widget:setText(tostring(count) .. " " .. _("selecionado(s)"))
         self.subtitle_widget:setText(_("modo de seleção"))
     else
         self.title_widget:setText("BookVault")
         self.subtitle_widget:setText(_("biblioteca pessoal"))
     end
+    self:rebuildTop()
     UIManager:setDirty(self, "ui", self.dimen)
 end
 
