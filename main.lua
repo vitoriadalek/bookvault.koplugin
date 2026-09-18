@@ -561,6 +561,7 @@ function BookVault:makeBookMenu(name,title,items,view_key)
     local header = BookVaultHeader:new{
         width=Screen:getWidth(),
         active_status=active_status,
+        visible_statuses=self.settings.data.visible_statuses,
         on_status=status_cb,
         on_search=search_cb,
         on_sort=sort_cb,
