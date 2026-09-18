@@ -551,6 +551,10 @@ function BookVault:decorateTitleBar(menu, appearance, search_cb, sort_cb, settin
     local button_padding=Screen:scaleBySize(5)
     local gap=Screen:scaleBySize(2)
     local group=HorizontalGroup:new{align="center"}
+    if appearance.show_cat then
+        table.insert(group,IconWidget:new{icon="bookvault-cat",width=Screen:scaleBySize(19),height=Screen:scaleBySize(19),dim=true})
+        table.insert(group,HorizontalSpan:new{width=gap})
+    end
     table.insert(group,IconButton:new{icon="bookvault-search",width=icon_size,height=icon_size,padding=button_padding,callback=search_cb,show_parent=menu})
     if appearance.show_moon then
         table.insert(group,HorizontalSpan:new{width=gap})
