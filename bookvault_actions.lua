@@ -534,17 +534,17 @@ function M.install(BV)
     end
 
     function BV:showPluginActions(menu, item)
-        -- Reuse the native File Manager dialog when it is available. This is the
-        -- safest compatibility point for third-party plugins registered there.
         local fm = require("apps/filemanager/filemanager").instance
-        if fm and fm.file_chooser and fm.file_chooser.showPlusMenu then
-            UIManager:show(InfoMessage:new{
-                text = _("As ações de plugins compatíveis são mantidas no File Browser do KOReader. Abra a localização do livro para acessá-las."),
+        if fm and fm.file_chooser and fm.file_chooser.showFileDialog then
+            local ok = pcall(fm.file_chooser.showFileDialog, fm.file_chooser, {
+                path = item.path,
+                is_file = true,
+                is_go_up = false,
             })
-            return
+            if ok then return end
         end
         UIManager:show(InfoMessage:new{
-            text = _("Nenhuma ação de plugin compatível foi disponibilizada para esta tela."),
+            text = _("As ações de plugins compatíveis não estão disponíveis nesta tela."),
         })
     end
 
