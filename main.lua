@@ -23,6 +23,7 @@ local sha2 = require("ffi/sha2")
 local logger = require("logger")
 local _ = require("gettext")
 local Screen = require("device").screen
+local BookVaultHeader = require("bookvault_header")
 
 local BookVault = WidgetContainer:extend{
     name = "bookvault", fullname = _("BookVault"), is_doc_only = false,
@@ -532,44 +533,12 @@ function BookVault:prepareVisualMenu(menu,source_items)
 end
 
 function BookVault:decorateTitleBar(menu, appearance, search_cb, sort_cb, settings_cb)
-    local bar=menu and menu.title_bar
-    if not bar then return end
-    local old_right=bar.right_button
-    if old_right then
-        for i=1,#bar do
-            if bar[i]==old_right then table.remove(bar,i); break end
-        end
-        pcall(old_right.free,old_right,true)
-        bar.right_button=nil
-        bar.has_right_icon=false
-    end
-    if bar._bookvault_action_group then
-        pcall(bar._bookvault_action_group.free,bar._bookvault_action_group,true)
-        bar._bookvault_action_group=nil
-    end
-    local icon_size=Screen:scaleBySize(25)
-    local button_padding=Screen:scaleBySize(5)
-    local gap=Screen:scaleBySize(2)
-    local group=HorizontalGroup:new{align="center"}
-    if appearance.show_cat then
-        table.insert(group,IconWidget:new{icon="bookvault-cat",width=Screen:scaleBySize(19),height=Screen:scaleBySize(19),dim=true})
-        table.insert(group,HorizontalSpan:new{width=gap})
-    end
-    table.insert(group,IconButton:new{icon="bookvault-search",width=icon_size,height=icon_size,padding=button_padding,callback=search_cb,show_parent=menu})
-    if appearance.show_moon then
-        table.insert(group,HorizontalSpan:new{width=gap})
-        table.insert(group,IconWidget:new{icon="bookvault-moon",width=Screen:scaleBySize(18),height=Screen:scaleBySize(18),dim=true})
-    end
-    table.insert(group,HorizontalSpan:new{width=gap})
-    table.insert(group,IconButton:new{icon=appearance.show_cat and "bookvault-sort-cat" or "bookvault-sort",width=icon_size,height=icon_size,padding=button_padding,callback=sort_cb,show_parent=menu})
-    table.insert(group,HorizontalSpan:new{width=gap})
-    table.insert(group,IconButton:new{icon="gear",width=icon_size,height=icon_size,padding=button_padding,callback=settings_cb,show_parent=menu})
-    local width=bar.width or Screen:getWidth()
-    local height=(bar.getHeight and bar:getHeight()) or Screen:scaleBySize(44)
-    local right=RightContainer:new{dimen=Geom:new{x=0,y=0,w=width,h=height},group}
-    table.insert(bar,right)
-    bar._bookvault_action_group=right
-    pcall(function() UIManager:setDirty(menu,"ui",bar.dimen) end)
+    -- Kept as a compatibility no-op: BookVault now uses BookVaultHeader.
+end
+
+function BookVault:changeCategory(menu, status)
+    if menu then UIManager:close(menu) end
+    self:showLibrary(status, self.privacyIncludePrivate and self:privacyIncludePrivate() or false)
 end
 
 function BookVault:makeBookMenu(name,title,items,view_key)
@@ -579,13 +548,34 @@ function BookVault:makeBookMenu(name,title,items,view_key)
     local appearance=self.settings.data.appearance
     if appearance.show_cat == nil then appearance.show_cat=true end
     if appearance.show_moon == nil then appearance.show_moon=true end
+
+    local active_status = "all"
+    local prefix = view_key and view_key:match("^status:(.+)$")
+    if prefix then active_status = prefix end
+
     local function search_cb() self:showSearchDialog(menu) end
     local function sort_cb() self:showSortDialog(menu) end
     local function settings_cb() self:showAppearanceSettings(menu) end
+    local function status_cb(status) self:changeCategory(menu,status) end
+
+    local header = BookVaultHeader:new{
+        width=Screen:getWidth(),
+        active_status=active_status,
+        on_status=status_cb,
+        on_search=search_cb,
+        on_sort=sort_cb,
+        on_settings=settings_cb,
+        on_close=function() if menu then UIManager:close(menu) end end,
+    }
+
     menu=BookList:new{
         name=name,title=title,item_table=items,covers_fullscreen=true,
+        custom_title_bar=header,
         onMenuSelect=function(_,item) self:guard(item.path,function()
-            if lfs.attributes(item.path,"mode")~="file" then UIManager:show(InfoMessage:new{text=_("O arquivo não existe mais.")}); return end
+            if lfs.attributes(item.path,"mode")~="file" then
+                UIManager:show(InfoMessage:new{text=_("O arquivo não existe mais.")})
+                return
+            end
             ReaderUI:showReader(item.path)
         end) end,
     }
@@ -593,6 +583,7 @@ function BookVault:makeBookMenu(name,title,items,view_key)
     menu._bookvault_view_key=view_key or name
     menu._bookvault_source_items=self:applyCustomOrder(items,menu._bookvault_view_key)
     menu.item_table=copyItems(menu._bookvault_source_items)
+    menu._bookvault_header=header
     self:loadSettings()
     local saved_sort=self.settings.data.sort_modes[menu._bookvault_view_key]
     local saved_directions=self.settings.data.sort_directions
@@ -602,7 +593,6 @@ function BookVault:makeBookMenu(name,title,items,view_key)
     end
     local ok_visual=self:prepareVisualMenu(menu,menu._bookvault_source_items)
     if not ok_visual then menu._bookvault_source_items=items; menu.item_table=items end
-    self:decorateTitleBar(menu,appearance,search_cb,sort_cb,settings_cb)
     return menu
 end
 
@@ -638,17 +628,24 @@ function BookVault:showLibrary(status,include_private)
             local ok,s=pcall(BookList.getBookStatus,item.path)
             if status=="all" or (ok and s==status) then items[#items+1]=item end
         end
-        local menu=self:makeBookMenu("bookvault_library_"..status,_("BookVault").." · "..self:getStatusLabel(status),items,"status:"..status)
+        self.settings.data.last_status=status
+        self:saveSettings()
+        local menu=self:makeBookMenu("bookvault_library_"..status,_("BookVault"),items,"status:"..status)
         UIManager:show(menu); menu:updateItems()
     end)
 end
 function BookVault:showStatusChooser()
-    self:loadSettings(); local buttons={}
-    for _,status in ipairs(STATUS) do if self:isStatusVisible(status.key) then buttons[#buttons+1]={{text=status.label,callback=function() UIManager:close(self.status_dialog); self:showLibrary(status.key,self.privacyIncludePrivate and self:privacyIncludePrivate() or false) end}} end end
-    for _,collection in ipairs(self:getCollections()) do if self:isCollectionVisible(collection.name) then buttons[#buttons+1]={{text="▸ "..collection.name,callback=function() UIManager:close(self.status_dialog); self:showCollection(collection.name) end}} end end
-    if #buttons==0 then self.settings.data.visible_statuses.all=true; self:saveSettings(); buttons={{{text=STATUS[1].label,callback=function() UIManager:close(self.status_dialog); self:showLibrary("all",self.privacyIncludePrivate and self:privacyIncludePrivate() or false) end}}} end
-    self.status_dialog=ButtonDialog:new{title=_("BookVault"),title_align="center",buttons=buttons}; UIManager:show(self.status_dialog)
+    self:loadSettings()
+    local first = self.settings.data.last_status or "all"
+    if not self:isStatusVisible(first) then first = "all" end
+    if not self:isStatusVisible(first) then
+        for _, status in ipairs(STATUS) do
+            if self:isStatusVisible(status.key) then first=status.key; break end
+        end
+    end
+    self:showLibrary(first, self.privacyIncludePrivate and self:privacyIncludePrivate() or false)
 end
+
 function BookVault:showStatusVisibilityChooser()
     self:loadSettings()
     local function rebuild()
