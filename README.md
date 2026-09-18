@@ -1,4 +1,4 @@
-# BookVault 3.3.0
+# BookVault 3.3.1
 
 Biblioteca visual para KOReader, projetada para telas e-ink: monocromática, leve, minimalista e integrada às APIs nativas do KOReader.
 
@@ -137,6 +137,6 @@ Renomear, mover e copiar usam as rotinas de metadados do KOReader quando dispon�
 
 ## AppStore
 
-O repositório mantém a estrutura de plugin KOReader e os arquivos de metadados necessários para descoberta pela AppStore comunitária. A versão **3.3.0** está publicada no branch padrão para descoberta e atualização.
+O repositório mantém a estrutura de plugin KOReader e os arquivos de metadados necessários para descoberta pela AppStore comunitária. A versão **3.3.1** está publicada no branch padrão. Esta versão também corrige a camada de ações que podia impedir o carregamento do plugin, melhora a remoção de Rating/Review e valida a aplicação da capa escolhida antes de confirmar sucesso.
 
 Após atualizar pelo AppStore, se uma versão antiga continuar em cache, use **Refresh cache/Atualizar** e reinicie o KOReader.
