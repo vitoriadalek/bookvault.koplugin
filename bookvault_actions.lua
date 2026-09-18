@@ -20,9 +20,6 @@ local _ = require("gettext")
 local logger = require("logger")
 local T = ffiUtil.template
 local N_ = _.ngettext
-local _source = (debug.getinfo(1, "S").source or ""):gsub("^@", "")
-local PLUGIN_DIR = _source:match("^(.+)/[^/]+$") or "."
-local function actionIcon(name) return PLUGIN_DIR .. "/icons/" .. name .. ".svg" end
 
 local M = {}
 
@@ -523,12 +520,12 @@ function M.install(BV)
                         closeIf(dialog)
                         self:showStatusForFiles(menu, selected)
                     end}},
-                {{text = _("Mais ações / plugins"), icon = actionIcon("bookvault-more"),
+                {{text = _("Mais ações / plugins"), icon = "bookvault-more",
                     callback = function()
                         closeIf(dialog)
                         if first then self:showPluginActions(menu, {path=first}) end
                     end}},
-                {{text = _("Sair da seleção"), icon = actionIcon("bookvault-check"),
+                {{text = _("Sair da seleção"), icon = "bookvault-check",
                     callback = function()
                         closeIf(dialog)
                         self:leaveSelection(menu)
@@ -632,15 +629,15 @@ function M.install(BV)
             title = item.text or basename(item.path),
             title_align = "center",
             buttons = {
-                {{text = _("Copiar"), icon = actionIcon("bookvault-copy"), callback = function()
+                {{text = _("Copiar"), icon = "bookvault-copy", callback = function()
                     closeIf(dialog)
                     self:copyOrMoveBook(item, menu, false)
                 end}},
-                {{text = _("Mover"), icon = actionIcon("bookvault-move"), callback = function()
+                {{text = _("Mover"), icon = "bookvault-move", callback = function()
                     closeIf(dialog)
                     self:copyOrMoveBook(item, menu, true)
                 end}},
-                {{text = _("Mais ações / plugins"), icon = actionIcon("bookvault-more"), callback = function()
+                {{text = _("Mais ações / plugins"), icon = "bookvault-more", callback = function()
                     closeIf(dialog)
                     self:showPluginActions(menu, item)
                 end}},
@@ -659,7 +656,7 @@ function M.install(BV)
 
         local dialog
         local buttons = {
-            {{text = _("Abrir livro"), icon = actionIcon("bookvault-open"), callback = function()
+            {{text = _("Abrir livro"), icon = "bookvault-open", callback = function()
                 closeIf(dialog)
                 self:guard(item.path, function()
                     if lfs.attributes(item.path,"mode") ~= "file" then
@@ -669,7 +666,7 @@ function M.install(BV)
                     filemanagerutil.openFile(self.ui, item.path)
                 end)
             end}},
-            {{text = _("Informações do livro"), icon = actionIcon("bookvault-info"), callback = function()
+            {{text = _("Informações do livro"), icon = "bookvault-info", callback = function()
                 closeIf(dialog)
                 self:showBookInfo(item)
             end}},
@@ -681,19 +678,19 @@ function M.install(BV)
                 closeIf(dialog)
                 self:showCollectionsForBook(item, menu)
             end}},
-            {{text = _("Selecionar vários"), icon = actionIcon("bookvault-check"), callback = function()
+            {{text = _("Selecionar vários"), icon = "bookvault-check", callback = function()
                 closeIf(dialog)
                 self:enterSelection(menu, item)
             end}},
-            {{text = _("Renomear"), icon = actionIcon("bookvault-edit"), callback = function()
+            {{text = _("Renomear"), icon = "bookvault-edit", callback = function()
                 closeIf(dialog)
                 self:renameBook(item, menu)
             end}},
-            {{text = _("Buscar capa no Google Imagens"), icon = actionIcon("bookvault-search-action"), callback = function()
+            {{text = _("Buscar capa no Google Imagens"), icon = "bookvault-search-action", callback = function()
                 closeIf(dialog)
                 self:searchGoogleImagesForCover(item.path)
             end}},
-            {{text = _("Abrir localização"), icon = actionIcon("bookvault-folder"), callback = function()
+            {{text = _("Abrir localização"), icon = "bookvault-folder", callback = function()
                 closeIf(dialog)
                 local dir = item.path:match("^(.*)/[^/]+$")
                 local fm = require("apps/filemanager/filemanager").instance
@@ -703,11 +700,11 @@ function M.install(BV)
                     self.ui.file_chooser:changeToPath(dir, item.path)
                 end
             end}},
-            {{text = _("Excluir"), icon = actionIcon("bookvault-trash"), callback = function()
+            {{text = _("Excluir"), icon = "bookvault-trash", callback = function()
                 closeIf(dialog)
                 self:deleteBooks({[item.path] = true}, menu)
             end}},
-            {{text = _("Mais ações"), icon = actionIcon("bookvault-more"), callback = function()
+            {{text = _("Mais ações"), icon = "bookvault-more", callback = function()
                 closeIf(dialog)
                 self:showMoreActions(menu, item)
             end}},
