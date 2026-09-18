@@ -404,6 +404,9 @@ function M.install(BV)
         menu._bookvault_selection_mode = true
         menu._bookvault_selected = {}
         if item and item.path then menu._bookvault_selected[item.path] = true end
+        if menu._bookvault_header and menu._bookvault_header.setSelectionCount then
+            menu._bookvault_header:setSelectionCount(count(menu._bookvault_selected))
+        end
         refresh(menu)
     end
 
@@ -415,12 +418,18 @@ function M.install(BV)
         else
             menu._bookvault_selected[item.path] = true
         end
+        if menu._bookvault_header and menu._bookvault_header.setSelectionCount then
+            menu._bookvault_header:setSelectionCount(count(menu._bookvault_selected))
+        end
         refresh(menu)
     end
 
     function BV:leaveSelection(menu)
         menu._bookvault_selection_mode = false
         menu._bookvault_selected = nil
+        if menu._bookvault_header and menu._bookvault_header.setSelectionCount then
+            menu._bookvault_header:setSelectionCount(0)
+        end
         refresh(menu)
     end
 
