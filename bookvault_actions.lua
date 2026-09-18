@@ -210,6 +210,7 @@ function M.install(BV)
                     kvp.pages = math.max(1, math.ceil(#filtered / kvp.items_per_page))
                     kvp.show_page = math.min(kvp.show_page or 1, kvp.pages)
                     kvp:_populateItems()
+                    UIManager:setDirty(kvp, "ui", kvp.dimen)
                 end
             end
         end)
