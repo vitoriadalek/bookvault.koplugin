@@ -193,6 +193,35 @@ function BookVault:invalidateLibraryCache()
     self._bookvault_scan_cache_key = nil
 end
 
+function BookVault:invalidateStatusCache(file)
+    self._bookvault_status_cache = self._bookvault_status_cache or {}
+    if file then
+        self._bookvault_status_cache[file] = nil
+    else
+        self._bookvault_status_cache = {}
+    end
+end
+
+function BookVault:getBookStatusCached(file)
+    if not file then return nil end
+    self._bookvault_status_cache = self._bookvault_status_cache or {}
+    local cached = self._bookvault_status_cache[file]
+    if cached ~= nil then
+        return cached ~= false and cached or nil
+    end
+    local ok, status = pcall(BookList.getBookStatus, file)
+    self._bookvault_status_cache[file] = ok and (status or false) or false
+    return status
+end
+
+function BookVault:invalidateBookMetadataCache(file)
+    if file then
+        if self._bookvault_metadata_cache then self._bookvault_metadata_cache[file] = nil end
+    else
+        self._bookvault_metadata_cache = {}
+    end
+end
+
 function BookVault:scanBooks(include_private)
     local root=self:getRoot(); if not root then return {} end
     local cache_key = root .. "|" .. (include_private and "1" or "0")
@@ -322,10 +351,18 @@ end
 
 function BookVault:getBookMetadata(item)
     if not item or not item.path then return {} end
+    self._bookvault_metadata_cache = self._bookvault_metadata_cache or {}
+    if self._bookvault_metadata_cache[item.path] ~= nil then
+        return self._bookvault_metadata_cache[item.path]
+    end
     local bim=self:loadBookInfoManager()
     if not bim then return {} end
     local ok_info,info=pcall(bim.getBookInfo,bim,item.path,false)
-    if not ok_info or type(info)~="table" then return {} end
+    if not ok_info or type(info)~="table" then
+        self._bookvault_metadata_cache[item.path] = {}
+        return self._bookvault_metadata_cache[item.path]
+    end
+    self._bookvault_metadata_cache[item.path] = info
     return info
 end
 
@@ -632,8 +669,8 @@ function BookVault:changeCategory(menu, status)
     local all_items = self:scanBooks(include_private)
     local filtered = {}
     for _, item in ipairs(all_items) do
-        local ok, current = pcall(BookList.getBookStatus, item.path)
-        if status == "all" or (ok and current == status) then
+        local current = self:getBookStatusCached(item.path)
+        if status == "all" or current == status then
             filtered[#filtered + 1] = item
         end
     end
@@ -765,8 +802,8 @@ function BookVault:showLibrary(status,include_private)
     safe(function()
         local items={}
         for _,item in ipairs(self:scanBooks(include_private)) do
-            local ok,s=pcall(BookList.getBookStatus,item.path)
-            if status=="all" or (ok and s==status) then items[#items+1]=item end
+            local s=self:getBookStatusCached(item.path)
+            if status=="all" or s==status then items[#items+1]=item end
         end
         self.settings.data.last_status=status
         self:saveSettings()
