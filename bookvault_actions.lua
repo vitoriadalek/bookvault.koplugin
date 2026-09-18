@@ -368,6 +368,10 @@ function M.install(BV)
         copyOrMove(self, menu, {[item.path] = true}, move)
     end
 
+    function BV:copyOrMoveSelected(menu, selected, move)
+        copyOrMove(self, menu, selected or {}, move)
+    end
+
     function BV:deleteBooks(selected, menu)
         local files = {}
         for path in pairs(selected or {}) do files[path] = true end
@@ -472,7 +476,7 @@ function M.install(BV)
         UIManager:show(dialog)
     end
 
-    function BV:showStatusForFiles(menu, selected)    function BV:showStatusForFiles(menu, selected)
+    function BV:showStatusForFiles(menu, selected)
         local files = selected or {}
         local first = next(files)
         if not first then return end
