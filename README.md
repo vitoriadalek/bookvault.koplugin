@@ -1,4 +1,4 @@
-# BookVault 3.3.1
+# BookVault 3.4.1
 
 Biblioteca visual para KOReader, projetada para telas e-ink: monocromática, leve, minimalista e integrada às APIs nativas do KOReader.
 
@@ -24,7 +24,7 @@ Biblioteca visual para KOReader, projetada para telas e-ink: monocromática, lev
 - Informações do livro com dados nativos do KOReader.
 - Edição direta de título, autores, série, número da série, idioma, palavras-chave e descrição.
 - Visualização e alteração da capa pela tela de informações.
-- Busca de capas no Google Imagens somente quando solicitada, com prévias visuais e escolha antes da aplicação.
+- Busca de capas somente quando solicitada, usando Open Library e Google Books, com prévias visuais e escolha antes da aplicação.
 - Status de leitura.
 - Coleções.
 - Selecionar vários.
@@ -105,38 +105,17 @@ A privacidade é independente da proteção de pastas.
 
 ## Busca de capas
 
-A busca no Google Imagens é totalmente sob demanda.
+A busca é totalmente sob demanda e não roda durante a varredura da biblioteca.
 
-- Consulta usando título + autor.
-- Até 6 resultados.
-- Extração tolerante às estruturas de metadados do Google, sem depender somente da extensão da URL.
-- Verificação do código HTTP.
-- Tratamento de bloqueios/respostas inesperadas.
+- Open Library como fonte estruturada principal.
+- Google Books como segunda fonte estruturada.
+- Consulta por ISBN quando disponível; caso contrário, título + autor.
+- Correspondência ponderada por ISBN, título, autor e idioma.
+- Até 6 capas apresentadas.
 - Pré-visualizações pequenas para escolha.
 - Somente a capa escolhida é baixada em resolução maior.
-- Limites de tamanho e timeout.
+- Verificação de HTTP, limites de tamanho e timeout.
 - Arquivos temporários são removidos.
 - A capa é aplicada pelo mecanismo nativo de capa personalizada do KOReader.
-- Nenhum livro é alterado automaticamente durante o scan.
-- Nenhuma busca ocorre em segundo plano.
-
-## Operações de arquivos
-
-Renomear, mover e copiar usam as rotinas de metadados do KOReader quando disponíveis, incluindo a atualização/migração do sidecar e da leitura. Excluir pede confirmação e limpa os metadados associados pela infraestrutura nativa antes de remover o arquivo.
-
-## Desempenho e estabilidade
-
-- Nenhuma busca de capa durante o scan normal.
-- Rede carregada apenas quando solicitada.
-- Módulos visuais pesados são carregados sob demanda.
-- O mosaico continua usando componentes nativos do KOReader.
-- Nenhum monkey patch global é usado.
-- Ações são instaladas diretamente nos menus criados pelo próprio BookVault.
-- Operações potencialmente destrutivas pedem confirmação.
-- Alterações de arquivo só acontecem após ação explícita do usuário.
-
-## AppStore
-
-O repositório mantém a estrutura de plugin KOReader e os arquivos de metadados necessários para descoberta pela AppStore comunitária. A versão **3.3.1** está publicada no branch padrão. Esta versão também corrige a camada de ações que podia impedir o carregamento do plugin, melhora a remoção de Rating/Review e valida a aplicação da capa escolhida antes de confirmar sucesso.
-
-Após atualizar pelo AppStore, se uma versão antiga continuar em cache, use **Refresh cache/Atualizar** e reinicie o KOReader.
+- Nenhum EPUB é modificado automaticamente.
+- Nenhuma busca é executada em segundo plano.
