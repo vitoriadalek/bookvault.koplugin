@@ -51,6 +51,26 @@ local function refresh(menu)
     end)
 end
 
+local function findSimpleUIBookVaultAction()
+    local ok_store, store = pcall(require, "infra/sui_store")
+    if not ok_store or not store then return nil, nil end
+    local tabs = store:get("simpleui_bar_tabs")
+    if type(tabs) ~= "table" then return nil, nil end
+    for _, action_id in ipairs(tabs) do
+        if type(action_id) == "string" and action_id:match("^custom_qa_%d+$") then
+            local cfg = store:get("simpleui_qa_" .. action_id)
+            if type(cfg) == "table" then
+                local key = tostring(cfg.plugin_key or ""):lower()
+                local label = tostring(cfg.label or ""):lower()
+                if key:find("bookvault", 1, true) or label == "bookvault" then
+                    return action_id, tabs
+                end
+            end
+        end
+    end
+    return nil, tabs
+end
+
 local function closeIf(widget)
     if widget then pcall(UIManager.close, UIManager, widget) end
 end
@@ -139,30 +159,13 @@ function M.install(BV)
     -- cover handling and compatibility across KOReader versions.
     function BV:showBookInfo(item)
         if not item or not item.path then return end
-        local ui = ReaderUI.instance or require("apps/filemanager/filemanager").instance
-        if not ui or not ui.bookinfo then
-            UIManager:show(InfoMessage:new{ text = _("As informações do livro não estão disponíveis nesta tela.") })
-            return
-        end
         safe(function()
-            local file = item.path
-            local book_props
-            local doc_settings_or_file = file
-            local fm = require("apps/filemanager/filemanager").instance
-            if fm and fm.coverbrowser and fm.coverbrowser.getBookInfo then
-                book_props = fm.coverbrowser:getBookInfo(file)
-            end
-            if BookList.hasBookBeenOpened(file) then
-                doc_settings_or_file = BookList.getDocSettings(file)
-                if not book_props then
-                    book_props = doc_settings_or_file:readSetting("doc_props")
-                end
-            end
-            ui.bookinfo:show(doc_settings_or_file, book_props and ui.bookinfo.extendProps(book_props))
+            local BookVaultBookInfo = require("bookvault_bookinfo")
+            BookVaultBookInfo.show(self.ui or require("apps/filemanager/filemanager").instance, item.path)
         end)
     end
 
-    local function collectionNames()
+    local function collectionNames()    local function collectionNames()
         local names = {}
         for name in pairs(ReadCollection.coll or {}) do
             if type(name) == "string" then names[#names + 1] = name end
@@ -433,55 +436,40 @@ function M.install(BV)
         refresh(menu)
     end
 
-    function BV:showSelectionActions(menu)
-        local selected = menu._bookvault_selected or {}
+    function BV:showSelectionMore(menu)
+        local selected = menu and menu._bookvault_selected or {}
         local n = count(selected)
         if n == 0 then
             self:leaveSelection(menu)
             return
         end
-
         local dialog
-        local buttons = {
-            {{ text = _("Abrir primeiro selecionado"), callback = function()
-                local path = next(selected)
-                closeIf(dialog)
-                if path then filemanagerutil.openFile(self.ui, path) end
-            end }},
-            {{ text = _("Status de leitura"), callback = function()
-                closeIf(dialog)
-                self:showStatusForFiles(menu, selected)
-            end }},
-            {{ text = _("Coleções"), callback = function()
-                closeIf(dialog)
-                self:showCollectionsForFiles(menu, selected)
-            end }},
-            {{ text = T(_("Mover %1"), n), callback = function()
-                closeIf(dialog)
-                copyOrMove(self, menu, selected, true)
-            end }},
-            {{ text = T(_("Copiar %1"), n), callback = function()
-                closeIf(dialog)
-                copyOrMove(self, menu, selected, false)
-            end }},
-            {{ text = T(_("Excluir %1"), n), callback = function()
-                closeIf(dialog)
-                self:deleteBooks(selected, menu)
-            end }},
-            {{ text = _("Sair da seleção"), callback = function()
-                closeIf(dialog)
-                self:leaveSelection(menu)
-            end }},
-        }
+        local first = next(selected)
         dialog = ButtonDialog:new{
             title = T(_("%1 selecionado(s)"), n),
             title_align = "center",
-            buttons = buttons,
+            buttons = {
+                {{text = _("Status de leitura"), icon = "bookmark",
+                    callback = function()
+                        closeIf(dialog)
+                        self:showStatusForFiles(menu, selected)
+                    end}},
+                {{text = _("Mais ações / plugins"), icon = "more",
+                    callback = function()
+                        closeIf(dialog)
+                        if first then self:showPluginActions(menu, {path=first}) end
+                    end}},
+                {{text = _("Sair da seleção"), icon = "check",
+                    callback = function()
+                        closeIf(dialog)
+                        self:leaveSelection(menu)
+                    end}},
+            },
         }
         UIManager:show(dialog)
     end
 
-    function BV:showStatusForFiles(menu, selected)
+    function BV:showStatusForFiles(menu, selected)    function BV:showStatusForFiles(menu, selected)
         local files = selected or {}
         local first = next(files)
         if not first then return end
@@ -568,6 +556,31 @@ function M.install(BV)
         })
     end
 
+    function BV:showMoreActions(menu, item)
+        if not item or not item.path then return end
+        local dialog
+        dialog = ButtonDialog:new{
+            title = item.text or basename(item.path),
+            title_align = "center",
+            buttons = {
+                {{text = _("Copiar"), icon = "copy", callback = function()
+                    closeIf(dialog)
+                    self:copyOrMoveBook(item, menu, false)
+                end}},
+                {{text = _("Mover"), icon = "move", callback = function()
+                    closeIf(dialog)
+                    self:copyOrMoveBook(item, menu, true)
+                end}},
+                {{text = _("Mais ações / plugins"), icon = "more", callback = function()
+                    closeIf(dialog)
+                    self:showPluginActions(menu, item)
+                end}},
+                {{text = _("Cancelar"), icon = "exit", callback = function() closeIf(dialog) end}},
+            },
+        }
+        UIManager:show(dialog)
+    end
+
     function BV:showBookActions(menu, item)
         if not item or not item.path or not item.is_file then return true end
         if menu._bookvault_selection_mode then
@@ -575,45 +588,43 @@ function M.install(BV)
             return true
         end
 
-        local coverLabel = hasCover(self, item.path) and _("Alterar capa") or _("Adicionar capa")
         local dialog
-        local section=function(label) return {{text="— "..label.." —",enabled=false}} end
         local buttons = {
-            section(_("Leitura")),
-            {{ text = _("Abrir livro"), callback = function()
-                closeIf(dialog); self:guard(item.path, function() filemanagerutil.openFile(self.ui, item.path) end)
-            end }},
-            {{ text = _("Informações do livro"), callback = function()
-                closeIf(dialog); self:showBookInfo(item)
-            end }},
-            {{ text = _("Status de leitura"), callback = function()
-                closeIf(dialog); self:showStatusForFiles(menu, {[item.path] = true})
-            end }},
-            section(_("Organização")),
-            {{ text = _("Coleções"), callback = function()
-                closeIf(dialog); self:showCollectionsForBook(item, menu)
-            end }},
-            {{ text = _("Selecionar vários"), callback = function()
-                closeIf(dialog); self:enterSelection(menu, item)
-            end }},
-            {{ text = _("Renomear"), callback = function()
-                closeIf(dialog); self:renameBook(item, menu)
-            end }},
-            {{ text = _("Copiar"), callback = function()
-                closeIf(dialog); self:copyOrMoveBook(item, menu, false)
-            end }},
-            {{ text = _("Mover"), callback = function()
-                closeIf(dialog); self:copyOrMoveBook(item, menu, true)
-            end }},
-            section(_("Capa e metadados")),
-            {{ text = coverLabel .. " / informações", callback = function()
-                closeIf(dialog); self:showBookInfo(item)
-            end }},
-            {{ text = _("Buscar capa no Google Imagens"), callback = function()
-                closeIf(dialog); self:searchGoogleImagesForCover(item.path)
-            end }},
-            section(_("Arquivo")),
-            {{ text = _("Abrir localização"), callback = function()
+            {{text = _("Abrir livro"), icon = "book", callback = function()
+                closeIf(dialog)
+                self:guard(item.path, function()
+                    if lfs.attributes(item.path,"mode") ~= "file" then
+                        UIManager:show(InfoMessage:new{text=_("O arquivo não existe mais.")})
+                        return
+                    end
+                    filemanagerutil.openFile(self.ui, item.path)
+                end)
+            end}},
+            {{text = _("Informações do livro"), icon = "info", callback = function()
+                closeIf(dialog)
+                self:showBookInfo(item)
+            end}},
+            {{text = _("Status de leitura"), icon = "bookmark", callback = function()
+                closeIf(dialog)
+                self:showStatusForFiles(menu, {[item.path] = true})
+            end}},
+            {{text = _("Coleções"), icon = "bookmark", callback = function()
+                closeIf(dialog)
+                self:showCollectionsForBook(item, menu)
+            end}},
+            {{text = _("Selecionar vários"), icon = "check", callback = function()
+                closeIf(dialog)
+                self:enterSelection(menu, item)
+            end}},
+            {{text = _("Renomear"), icon = "edit", callback = function()
+                closeIf(dialog)
+                self:renameBook(item, menu)
+            end}},
+            {{text = _("Buscar capa no Google Imagens"), icon = "search", callback = function()
+                closeIf(dialog)
+                self:searchGoogleImagesForCover(item.path)
+            end}},
+            {{text = _("Abrir localização"), icon = "folder", callback = function()
                 closeIf(dialog)
                 local dir = item.path:match("^(.*)/[^/]+$")
                 local fm = require("apps/filemanager/filemanager").instance
@@ -622,22 +633,23 @@ function M.install(BV)
                 elseif self.ui and self.ui.file_chooser and dir then
                     self.ui.file_chooser:changeToPath(dir, item.path)
                 end
-            end }},
-            {{ text = _("Excluir"), callback = function()
-                closeIf(dialog); self:deleteBooks({[item.path] = true}, menu)
-            end }},
-            section(_("Extensões")),
-            {{ text = _("Mais ações / plugins"), callback = function()
-                closeIf(dialog); self:showPluginActions(menu, item)
-            end }},
-            {},
-            {{ text = _("Cancelar"), callback = function() closeIf(dialog) end }},
+            end}},
+            {{text = _("Excluir"), icon = "trash", callback = function()
+                closeIf(dialog)
+                self:deleteBooks({[item.path] = true}, menu)
+            end}},
+            {{text = _("Mais ações"), icon = "more", callback = function()
+                closeIf(dialog)
+                self:showMoreActions(menu, item)
+            end}},
+            {{text = _("Cancelar"), icon = "exit", callback = function() closeIf(dialog) end}},
         }
 
         dialog = ButtonDialog:new{
             title = item.text or basename(item.path),
             title_align = "center",
             buttons = buttons,
+            shrink_unneeded_width = true,
         }
         UIManager:show(dialog)
         return true
@@ -648,113 +660,298 @@ function M.install(BV)
         local http = require("socket.http")
         local ltn12 = require("ltn12")
         local socketutil = require("socketutil")
+        local ImageWidget = require("ui/widget/imagewidget")
+        local Button = require("ui/widget/button")
+        local HorizontalGroup = require("ui/widget/horizontalgroup")
+        local HorizontalSpan = require("ui/widget/horizontalspan")
+        local VerticalGroup = require("ui/widget/verticalgroup")
+        local CenterContainer = require("ui/widget/container/centercontainer")
+        local FrameContainer = require("ui/widget/container/framecontainer")
+        local Geom = require("ui/geometry")
+        local Screen = require("device").screen
+        local Size = require("ui/size")
+
         local props = getProps(self, file)
         local title = props.title or props.display_title or basename(file):gsub("%.[^%.]+$", "")
         local authors = props.authors or ""
-        local q = (title .. " " .. authors):gsub("[^%w%s%-]", ""):gsub("%s+", "+")
-        local url = "https://www.google.com/search?tbm=isch&q=" .. q
+        local query = (title .. " " .. authors):gsub("[^%w%s%-]", " "):gsub("%s+", " ")
+        local encoded = query:gsub(" ", "+")
+        local url = "https://www.google.com/search?tbm=isch&safe=active&q=" .. encoded
 
-        UIManager:show(InfoMessage:new{ text = _("Pesquisando capas…") })
-        local sink = {}
-        socketutil:set_timeout(10, 20)
-        local ok = pcall(function()
-            socket.skip(1, http.request{
-                url = url,
-                headers = {
-                    ["User-Agent"] = "Mozilla/5.0",
-                    ["Accept-Encoding"] = "identity",
+        local function decodeUrl(u)
+            if not u then return nil end
+            u = u:gsub("\\/", "/")
+            u = u:gsub("\\u003d", "="):gsub("\\u0026", "&")
+            u = u:gsub("\x3d", "="):gsub("\x26", "&")
+            u = u:gsub("&amp;", "&")
+            u = u:gsub("\"", """)
+            return u
+        end
+
+        local function validImageUrl(u)
+            if type(u) ~= "string" or u == "" then return false end
+            if not u:match("^https?://") then return false end
+            if u:find("google%.com/search", 1) then return false end
+            if u:find("gstatic%.com/images", 1) then return false end
+            return #u < 4096
+        end
+
+        local function requestToFile(target_url, output, max_bytes)
+            local f = io.open(output, "wb")
+            if not f then return false, _("Não foi possível criar o arquivo temporário.") end
+            local total = 0
+            local sink = function(chunk, err)
+                if not chunk then
+                    f:close()
+                    return 1
+                end
+                total = total + #chunk
+                if total > max_bytes then
+                    f:close()
+                    return nil, "response too large"
+                end
+                local ok_write = f:write(chunk)
+                if not ok_write then
+                    f:close()
+                    return nil, "write failed"
+                end
+                return 1
+            end
+
+            socketutil:set_timeout(8, 15)
+            local ok, success, code = pcall(function()
+                return http.request{
+                    url=target_url,
+                    method="GET",
+                    headers={
+                        ["User-Agent"]="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+                        ["Accept"]="image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                        ["Accept-Encoding"]="identity",
+                    },
+                    sink=sink,
+                }
+            end)
+            socketutil:reset_timeout()
+            if not ok or success ~= 1 or tonumber(code) ~= 200 then
+                pcall(f.close, f)
+                pcall(os.remove, output)
+                return false, "http"
+            end
+            if total <= 0 then
+                pcall(os.remove, output)
+                return false, "empty"
+            end
+            return true
+        end
+
+        UIManager:show(InfoMessage:new{ text=_("Pesquisando capas…") })
+
+        local html_parts = {}
+        socketutil:set_timeout(8, 15)
+        local ok, success, code = pcall(function()
+            return http.request{
+                url=url,
+                method="GET",
+                headers={
+                    ["User-Agent"]="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+                    ["Accept"]="text/html,application/xhtml+xml",
+                    ["Accept-Encoding"]="identity",
+                    ["Accept-Language"]="pt-BR,pt;q=0.9,en;q=0.8",
                 },
-                sink = ltn12.sink.table(sink),
-            })
+                sink=ltn12.sink.table(html_parts),
+            }
         end)
         socketutil:reset_timeout()
-        if not ok then
-            UIManager:show(InfoMessage:new{ text = _("Não foi possível acessar a pesquisa de imagens.") })
+
+        if not ok or success ~= 1 or tonumber(code) ~= 200 then
+            UIManager:show(InfoMessage:new{ text=_("O Google Imagens não respondeu corretamente.") })
             return
         end
 
-        local html = table.concat(sink)
+        local html = table.concat(html_parts)
+        if html == "" or html:find("unusual traffic", 1, true) or html:find("consent.google.com", 1, true) then
+            UIManager:show(InfoMessage:new{ text=_("O Google Imagens não disponibilizou resultados para esta pesquisa.") })
+            return
+        end
+
         local found, seen = {}, {}
-        for u in html:gmatch('https?://[^"\\<> ]+') do
-            u = u:gsub("\\u003d", "="):gsub("\\u0026", "&")
-            if (u:match("%.[Jj][Pp][Gg]") or u:match("%.[Jj][Pp][Ee][Gg]") or
-                u:match("%.[Pp][Nn][Gg]") or u:match("%.[Ww][Ee][Bb][Pp]")) and not seen[u] then
-                seen[u] = true
-                found[#found + 1] = u
+        local function addResult(original, thumb)
+            original, thumb = decodeUrl(original), decodeUrl(thumb)
+            if not validImageUrl(original) then return end
+            if not validImageUrl(thumb) then thumb = original end
+            if seen[original] then return end
+            seen[original] = true
+            found[#found+1] = {original=original, thumb=thumb}
+        end
+
+        -- Google image results commonly expose original ("ou") and thumbnail
+        -- ("tu") URLs inside JSON-like data. Accept both spacing variants.
+        for ou, tu in html:gmatch('"ou"%s*:%s*"([^"]+)"%s*,%s*"tu"%s*:%s*"([^"]+)"') do
+            addResult(ou, tu)
+            if #found >= 6 then break end
+        end
+        if #found < 6 then
+            for ou, tu in html:gmatch('"ou"%s*:%s*"([^"]+)"[^}]-"tu"%s*:%s*"([^"]+)"') do
+                addResult(ou, tu)
+                if #found >= 6 then break end
+            end
+        end
+        if #found < 6 then
+            for u in html:gmatch('https?://[^"\\<>%s]+') do
+                u = decodeUrl(u)
+                if validImageUrl(u) and not seen[u] then
+                    local lower = u:lower()
+                    if lower:find("%.jpg") or lower:find("%.jpeg") or lower:find("%.png") or lower:find("%.webp") then
+                        addResult(u, u)
+                    end
+                end
                 if #found >= 6 then break end
             end
         end
 
         if #found == 0 then
             UIManager:show(InfoMessage:new{
-                text = _("O Google Imagens não retornou capas utilizáveis."),
+                text=_("Nenhuma capa utilizável foi encontrada. Tente novamente ou verifique a conexão."),
             })
             return
         end
 
-        local dialog
+        local base = DataStorage:getDataDir() .. "/bookvault/covers"
+        pcall(util.makePath, base)
+        local temp_files = {}
         local buttons = {}
-        for i, imageUrl in ipairs(found) do
-            local index = i
-            buttons[#buttons + 1] = {{
-                text = T(_("Capa %1 · baixar e aplicar"), index),
-                callback = function()
-                    closeIf(dialog)
-                    local base = DataStorage:getDataDir() .. "/bookvault/covers"
-                    pcall(util.makePath, base)
-                    local ext = imageUrl:match("%.([A-Za-z0-9]+)(?:%?|$)") or "jpg"
-                    if ext:lower() ~= "jpg" and ext:lower() ~= "jpeg" and ext:lower() ~= "png" then ext = "jpg" end
-                    local out = base .. "/cover_" .. tostring(os.time()) .. "_" .. tostring(index) .. "." .. ext
-                    local f = io.open(out, "wb")
-                    if not f then
-                        UIManager:show(InfoMessage:new{ text = _("Não foi possível preparar a capa.") })
-                        return
-                    end
-                    socketutil:set_timeout(10, 20)
-                    local ok2 = pcall(function()
-                        socket.skip(1, http.request{
-                            url = imageUrl,
-                            headers = { ["User-Agent"] = "Mozilla/5.0" },
-                            sink = ltn12.sink.file(f),
-                        })
-                    end)
-                    socketutil:reset_timeout()
-                    pcall(f.close, f)
-                    if not ok2 or lfs.attributes(out, "mode") ~= "file" then
-                        UIManager:show(InfoMessage:new{ text = _("Não foi possível baixar esta capa.") })
-                        return
-                    end
+        local cols = 2
+        local thumb_w = math.min(Screen:scaleBySize(170), math.floor(Screen:getWidth() / 2) - Screen:scaleBySize(35))
+        local thumb_h = Screen:scaleBySize(220)
 
-                    local ui = self.ui or ReaderUI.instance
-                    if ui and ui.bookinfo and ui.bookinfo.setCustomCoverFromImage then
-                        local ok_apply = pcall(ui.bookinfo.setCustomCoverFromImage, ui.bookinfo, file, out)
-                        if ok_apply then
-                            pcall(os.remove, out)
+        local dialog
+        local function cleanup()
+            for _, path in ipairs(temp_files) do pcall(os.remove, path) end
+            temp_files = {}
+        end
+
+        for i, result in ipairs(found) do
+            local thumb_path = base .. "/thumb_" .. tostring(os.time()) .. "_" .. tostring(i) .. ".img"
+            local ok_thumb = requestToFile(result.thumb, thumb_path, 350 * 1024)
+            if ok_thumb then
+                temp_files[#temp_files+1] = thumb_path
+                local button = {
+                    icon=thumb_path,
+                    icon_width=thumb_w,
+                    icon_height=thumb_h,
+                    text=tostring(i),
+                    font_size=12,
+                    callback=function()
+                        if dialog then UIManager:close(dialog) end
+                        cleanup()
+                        local out = base .. "/cover_" .. tostring(os.time()) .. "_" .. tostring(i) .. ".img"
+                        local ok_full = requestToFile(result.original, out, 8 * 1024 * 1024)
+                        if not ok_full then
+                            UIManager:show(InfoMessage:new{text=_("Não foi possível baixar a capa escolhida.")})
+                            return
+                        end
+                        local ui = self.ui or ReaderUI.instance
+                        local applied = false
+                        if ui and ui.bookinfo and ui.bookinfo.setCustomCoverFromImage then
+                            applied = pcall(ui.bookinfo.setCustomCoverFromImage, ui.bookinfo, file, out)
+                        else
+                            local ok_fm, fm_info = pcall(require, "apps/filemanager/filemanager").instance
+                            if ok_fm and fm_info and fm_info.bookinfo and fm_info.bookinfo.setCustomCoverFromImage then
+                                applied = pcall(fm_info.bookinfo.setCustomCoverFromImage, fm_info.bookinfo, file, out)
+                            end
+                        end
+                        pcall(os.remove, out)
+                        if applied then
                             UIManager:broadcastEvent(require("ui/event"):new("InvalidateMetadataCache", file))
                             if self._last_menu then refresh(self._last_menu) end
-                            UIManager:show(InfoMessage:new{ text = _("Capa aplicada.") })
+                            UIManager:show(InfoMessage:new{text=_("Capa aplicada.")})
                         else
-                            UIManager:show(InfoMessage:new{ text = _("Não foi possível aplicar esta capa.") })
+                            UIManager:show(InfoMessage:new{text=_("Não foi possível aplicar esta capa nesta tela.")})
                         end
-                    else
-                        UIManager:show(InfoMessage:new{ text = _("A edição de capa nativa não está disponível nesta tela.") })
-                    end
-                end,
-            }}
+                    end,
+                }
+                if i % cols == 1 then
+                    buttons[#buttons+1] = {button}
+                else
+                    buttons[#buttons] = buttons[#buttons] or {}
+                    buttons[#buttons+1] = button
+                end
+            end
         end
-        buttons[#buttons + 1] = {{
-            text = _("Cancelar"),
-            callback = function() closeIf(dialog) end,
-        }}
+
+        -- Fix row construction if an odd number of previews was downloaded.
+        local normalized = {}
+        for _, row in ipairs(buttons) do
+            if row.text or row.icon then
+                normalized[#normalized+1] = {row}
+            else
+                normalized[#normalized+1] = row
+            end
+        end
+
+        if #normalized == 0 then
+            cleanup()
+            UIManager:show(InfoMessage:new{text=_("As prévias das capas não puderam ser carregadas.")})
+            return
+        end
+
+        normalized[#normalized+1] = {{text=_("Cancelar"),icon="exit",callback=function()
+            closeIf(dialog)
+            cleanup()
+        end}}
+
         dialog = ButtonDialog:new{
-            title = _("Google Imagens · escolher capa"),
-            title_align = "center",
-            buttons = buttons,
+            title=_("Google Imagens · escolher capa"),
+            title_align="center",
+            buttons=normalized,
+            shrink_unneeded_width=true,
         }
+        dialog.onCloseWidget = function(self_dialog)
+            cleanup()
+        end
         UIManager:show(dialog)
     end
 
-    -- Scope all interactions to the menu instance returned by BookVault.
+
+    function BV:markSimpleUIActive()
+        if self._bookvault_sui_action then return true end
+        local action_id, tabs = findSimpleUIBookVaultAction()
+        if not action_id then return false end
+        local fm = package.loaded["apps/filemanager/filemanager"]
+        local fm_instance = fm and fm.instance
+        local sui = fm_instance and fm_instance._simpleui_plugin
+        if not sui then
+            local rui = package.loaded["apps/reader/readerui"]
+            sui = rui and rui.instance and rui.instance.simpleui
+        end
+        local ok_bb, BB = pcall(require, "screens/sui_bottombar")
+        if not sui or not ok_bb or not BB or not BB.setTempTabActive then return false end
+        self._bookvault_sui_action = action_id
+        self._bookvault_sui_prev_action = sui.active_action
+        self._bookvault_sui_plugin = sui
+        pcall(BB.setTempTabActive, sui, action_id, true, self._bookvault_sui_prev_action)
+        return true
+    end
+
+    function BV:restoreSimpleUIActive()
+        local action_id = self._bookvault_sui_action
+        local sui = self._bookvault_sui_plugin
+        if not action_id or not sui then return end
+        local prev = self._bookvault_sui_prev_action
+        local ok_bb, BB = pcall(require, "screens/sui_bottombar")
+        if ok_bb and BB and BB.setTempTabActive then
+            pcall(BB.setTempTabActive, sui, action_id, false, prev)
+        end
+        self._bookvault_sui_action = nil
+        self._bookvault_sui_prev_action = nil
+        self._bookvault_sui_plugin = nil
+    end
+
+    function BV:closeBookVault(menu)
+        if menu then UIManager:close(menu) end
+    end
+
+    -- Scope all interactions to the menu instance returned by BookVault.    -- Scope all interactions to the menu instance returned by BookVault.
     local oldMake = BV.makeBookMenu
     BV.makeBookMenu = function(self, ...)
         local menu = oldMake(self, ...)
@@ -773,6 +970,14 @@ function M.install(BV)
             return self:showBookActions(m, item)
         end
 
+        self:markSimpleUIActive()
+        local oldCloseWidget = menu.onCloseWidget
+        menu.onCloseWidget = function(m, ...)
+            self:restoreSimpleUIActive()
+            if oldCloseWidget then
+                return oldCloseWidget(m, ...)
+            end
+        end
         menu._bookvault_action_owner = self
         return menu
     end
