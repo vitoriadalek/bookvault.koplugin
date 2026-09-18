@@ -608,7 +608,7 @@ end
 
 function BookVault:showCollection(collection_name)
     safe(function()
-        local items=self:collectionItems(collection_name,self.unlocked)
+        local items=self:collectionItems(collection_name,self.privacyIncludePrivate and self:privacyIncludePrivate() or self.unlocked)
         local menu=self:makeBookMenu("bookvault_collection_"..collection_name,_("BookVault").." · "..collection_name,items,"collection:"..collection_name)
         UIManager:show(menu); menu:updateItems()
     end)
@@ -644,9 +644,9 @@ function BookVault:showLibrary(status,include_private)
 end
 function BookVault:showStatusChooser()
     self:loadSettings(); local buttons={}
-    for _,status in ipairs(STATUS) do if self:isStatusVisible(status.key) then buttons[#buttons+1]={{text=status.label,callback=function() UIManager:close(self.status_dialog); self:showLibrary(status.key,self.unlocked) end}} end end
+    for _,status in ipairs(STATUS) do if self:isStatusVisible(status.key) then buttons[#buttons+1]={{text=status.label,callback=function() UIManager:close(self.status_dialog); self:showLibrary(status.key,self.privacyIncludePrivate and self:privacyIncludePrivate() or false) end}} end end
     for _,collection in ipairs(self:getCollections()) do if self:isCollectionVisible(collection.name) then buttons[#buttons+1]={{text="▸ "..collection.name,callback=function() UIManager:close(self.status_dialog); self:showCollection(collection.name) end}} end end
-    if #buttons==0 then self.settings.data.visible_statuses.all=true; self:saveSettings(); buttons={{{text=STATUS[1].label,callback=function() UIManager:close(self.status_dialog); self:showLibrary("all",self.unlocked) end}}} end
+    if #buttons==0 then self.settings.data.visible_statuses.all=true; self:saveSettings(); buttons={{{text=STATUS[1].label,callback=function() UIManager:close(self.status_dialog); self:showLibrary("all",self.privacyIncludePrivate and self:privacyIncludePrivate() or false) end}}} end
     self.status_dialog=ButtonDialog:new{title=_("BookVault"),title_align="center",buttons=buttons}; UIManager:show(self.status_dialog)
 end
 function BookVault:showStatusVisibilityChooser()
