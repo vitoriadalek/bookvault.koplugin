@@ -578,10 +578,10 @@ function BookVault:makeBookMenu(name,title,items,view_key)
             if menu and menu._bookvault_selected then self:showCollectionsForFiles(menu, menu._bookvault_selected) end
         end,
         on_selection_move=function()
-            if menu and menu._bookvault_selected then self:copyOrMoveSelected(menu, menu._bookvault_selected, true) end
+            if menu and menu._bookvault_selected then self:copyOrMoveBookSelection(menu, true) end
         end,
         on_selection_copy=function()
-            if menu and menu._bookvault_selected then self:copyOrMoveSelected(menu, menu._bookvault_selected, false) end
+            if menu and menu._bookvault_selected then self:copyOrMoveBookSelection(menu, false) end
         end,
         on_selection_delete=function()
             if menu and menu._bookvault_selected then self:deleteBooks(menu._bookvault_selected, menu) end
