@@ -139,16 +139,27 @@ function M.install(BV)
     -- cover handling and compatibility across KOReader versions.
     function BV:showBookInfo(item)
         if not item or not item.path then return end
-        local ui = self.ui or ReaderUI.instance
-        if ui and ui.bookinfo and ui.bookinfo.show then
-            local file = item.path
-            safe(function()
-                local props = ui.bookinfo:getDocProps(file)
-                ui.bookinfo:show(file, ui.bookinfo.extendProps(props, file))
-            end)
+        local ui = ReaderUI.instance or require("apps/filemanager/filemanager").instance
+        if not ui or not ui.bookinfo then
+            UIManager:show(InfoMessage:new{ text = _("As informações do livro não estão disponíveis nesta tela.") })
             return
         end
-        UIManager:show(InfoMessage:new{ text = _("As informações do livro não estão disponíveis nesta tela.") })
+        safe(function()
+            local file = item.path
+            local book_props
+            local doc_settings_or_file = file
+            local fm = require("apps/filemanager/filemanager").instance
+            if fm and fm.coverbrowser and fm.coverbrowser.getBookInfo then
+                book_props = fm.coverbrowser:getBookInfo(file)
+            end
+            if BookList.hasBookBeenOpened(file) then
+                doc_settings_or_file = BookList.getDocSettings(file)
+                if not book_props then
+                    book_props = doc_settings_or_file:readSetting("doc_props")
+                end
+            end
+            ui.bookinfo:show(doc_settings_or_file, book_props and ui.bookinfo.extendProps(book_props))
+        end)
     end
 
     local function collectionNames()
@@ -557,10 +568,11 @@ function M.install(BV)
 
         local coverLabel = hasCover(self, item.path) and _("Alterar capa") or _("Adicionar capa")
         local dialog
+        local section=function(label) return {{text="— "..label.." —",enabled=false}} end
         local buttons = {
+            section(_("Leitura")),
             {{ text = _("Abrir livro"), callback = function()
-                closeIf(dialog)
-                self:guard(item.path, function() filemanagerutil.openFile(self.ui, item.path) end)
+                closeIf(dialog); self:guard(item.path, function() filemanagerutil.openFile(self.ui, item.path) end)
             end }},
             {{ text = _("Informações do livro"), callback = function()
                 closeIf(dialog); self:showBookInfo(item)
@@ -568,16 +580,10 @@ function M.install(BV)
             {{ text = _("Status de leitura"), callback = function()
                 closeIf(dialog); self:showStatusForFiles(menu, {[item.path] = true})
             end }},
+            section(_("Organização")),
             {{ text = _("Coleções"), callback = function()
                 closeIf(dialog); self:showCollectionsForBook(item, menu)
             end }},
-            {{ text = coverLabel .. " / metadados", callback = function()
-                closeIf(dialog); self:showBookInfo(item)
-            end }},
-            {{ text = _("Buscar capa no Google Imagens"), callback = function()
-                closeIf(dialog); self:searchGoogleImagesForCover(item.path)
-            end }},
-            {},
             {{ text = _("Selecionar vários"), callback = function()
                 closeIf(dialog); self:enterSelection(menu, item)
             end }},
@@ -590,6 +596,14 @@ function M.install(BV)
             {{ text = _("Mover"), callback = function()
                 closeIf(dialog); self:copyOrMoveBook(item, menu, true)
             end }},
+            section(_("Capa e metadados")),
+            {{ text = coverLabel .. " / informações", callback = function()
+                closeIf(dialog); self:showBookInfo(item)
+            end }},
+            {{ text = _("Buscar capa no Google Imagens"), callback = function()
+                closeIf(dialog); self:searchGoogleImagesForCover(item.path)
+            end }},
+            section(_("Arquivo")),
             {{ text = _("Abrir localização"), callback = function()
                 closeIf(dialog)
                 local dir = item.path:match("^(.*)/[^/]+$")
@@ -603,6 +617,7 @@ function M.install(BV)
             {{ text = _("Excluir"), callback = function()
                 closeIf(dialog); self:deleteBooks({[item.path] = true}, menu)
             end }},
+            section(_("Extensões")),
             {{ text = _("Mais ações / plugins"), callback = function()
                 closeIf(dialog); self:showPluginActions(menu, item)
             end }},
