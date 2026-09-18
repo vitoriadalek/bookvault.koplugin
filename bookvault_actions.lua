@@ -159,6 +159,10 @@ function M.install(BV)
         end
 
         self._bookvault_sui_registered = true
+        -- Only migrate the old persisted action after the native action is
+        -- actually registered. This prevents an unavailable native action
+        -- from deleting the only working legacy entry.
+        pcall(self.migrateLegacySimpleUIActions, self)
         return true
     end
 
@@ -215,10 +219,21 @@ function M.install(BV)
         local function replace_ids(list)
             if type(list) ~= "table" then return list, false end
             local out, did_change = {}, false
+            local native_seen = false
             for _, id in ipairs(list) do
                 if legacy[id] then
-                    out[#out + 1] = "bookvault"
+                    if not native_seen then
+                        out[#out + 1] = "bookvault"
+                        native_seen = true
+                    end
                     did_change = true
+                elseif id == "bookvault" then
+                    if not native_seen then
+                        out[#out + 1] = id
+                        native_seen = true
+                    else
+                        did_change = true
+                    end
                 else
                     out[#out + 1] = id
                 end
