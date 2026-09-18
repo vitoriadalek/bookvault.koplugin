@@ -734,6 +734,7 @@ function M.install(BV)
             return http.request(req)
         end
         local urlmod = require("socket.url")
+        local mime = require("mime")
         local ButtonDialog = require("ui/widget/buttondialog")
         local Screen = require("device").screen
 
@@ -898,13 +899,51 @@ function M.install(BV)
             temp_files = {}
         end
 
+        local function makePreviewIcon(raw_path, index)
+            local f = io.open(raw_path, "rb")
+            if not f then return nil end
+            local data = f:read("*a")
+            f:close()
+            if not data or #data == 0 then return nil end
+
+            local mime_type
+            if data:sub(1, 3) == "\255\216\255" then
+                mime_type = "image/jpeg"
+            elseif data:sub(1, 8) == "\137PNG\r\n\26\n" then
+                mime_type = "image/png"
+            elseif data:sub(1, 4) == "GIF8" then
+                mime_type = "image/gif"
+            elseif data:sub(1, 12):sub(9, 12) == "WEBP" and data:sub(1, 4) == "RIFF" then
+                mime_type = "image/webp"
+            end
+            if not mime_type then return nil end
+
+            local encoded = mime.b64(data)
+            local icon_name = "bookvault-cover-preview-" .. tostring(os.time()) .. "-" .. tostring(index)
+            local icon_path = DataStorage:getDataDir() .. "/icons/" .. icon_name .. ".svg"
+            local svg = string.format(
+                '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400"><rect width="300" height="400" fill="white"/><image x="0" y="0" width="300" height="400" preserveAspectRatio="xMidYMid meet" href="data:%s;base64,%s"/></svg>',
+                mime_type, encoded)
+            local out = io.open(icon_path, "wb")
+            if not out then return nil end
+            out:write(svg)
+            out:close()
+            pcall(os.remove, raw_path)
+            temp_files[#temp_files + 1] = icon_path
+            return icon_name
+        end
+
         for i = 1, math.min(#candidates, 12) do
             if #found >= 6 then break end
             local result = candidates[i]
             local thumb_path = base .. "/preview_" .. tostring(os.time()) .. "_" .. tostring(i) .. ".img"
-            if requestToFile(result.thumb, thumb_path, 300 * 1024) then
-                temp_files[#temp_files + 1] = thumb_path
-                found[#found + 1] = { original = result.original, thumb = thumb_path }
+            if requestToFile(result.thumb, thumb_path, 180 * 1024) then
+                local icon_name = makePreviewIcon(thumb_path, i)
+                if icon_name then
+                    found[#found + 1] = { original = result.original, icon = icon_name }
+                else
+                    pcall(os.remove, thumb_path)
+                end
             end
         end
 
@@ -926,7 +965,7 @@ function M.install(BV)
             end
             current_row[#current_row + 1] = {
                 text = tostring(i),
-                icon = result.thumb,
+                icon = result.icon,
                 icon_width = math.min(Screen:scaleBySize(150), math.floor(Screen:getWidth() / 2) - Screen:scaleBySize(30)),
                 icon_height = Screen:scaleBySize(200),
                 callback = function()
