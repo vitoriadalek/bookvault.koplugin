@@ -1,5 +1,8 @@
--- BookVault bootstrap kept intentionally tiny so KOReader can always discover the plugin.
--- The full implementation is loaded only after PluginLoader has accepted this module.
+-- BookVault bootstrap.
+-- Keep this file deliberately tiny: KOReader must be able to discover and
+-- register the plugin even if a BookVault feature module has a compatibility
+-- problem. The full implementation is loaded lazily from the BookVault menu.
+
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("gettext")
 local logger = require("logger")
@@ -10,38 +13,27 @@ local BookVault = WidgetContainer:extend{
     is_doc_only = false,
 }
 
-function BookVault:init()
-    -- Loading the implementation is deliberately isolated from plugin discovery.
-    -- Even if a helper/API is incompatible with a particular KOReader build,
-    -- this module has already been returned to PluginLoader and remains visible
-    -- in Tools/User Plugins.
+function BookVault:loadImplementation()
+    if self._bookvault_implementation_loaded then
+        return true
+    end
+
     local ok, Core = pcall(require, "bookvault_core")
     if not ok or type(Core) ~= "table" then
         logger.err("BookVault: implementation failed to load", Core)
-        return
+        return false
     end
 
-    -- Copy the implementation methods onto the real plugin class. The Core
-    -- class is never instantiated, so its init() is intentionally not invoked.
+    -- Copy implementation methods to the real plugin class. Do not copy init()
+    -- or addToMainMenu(): both are owned by this minimal bootstrap.
     for name, value in pairs(Core) do
-        if name ~= "init" and type(value) == "function" then
+        if name ~= "init" and name ~= "addToMainMenu" and type(value) == "function" then
             BookVault[name] = value
         end
     end
 
-    local ok_settings, err_settings = pcall(self.loadSettings, self)
-    if not ok_settings then
-        logger.err("BookVault: initial settings load failed", err_settings)
-    end
+    self._bookvault_implementation_loaded = true
 
-    local ok_menu, err_menu = pcall(function()
-        self.ui.menu:registerToMainMenu(self)
-    end)
-    if not ok_menu then
-        logger.err("BookVault: main-menu registration failed", err_menu)
-    end
-
-    -- Actions are optional and must never affect plugin discovery.
     local ok_actions, actions = pcall(require, "bookvault_actions")
     if ok_actions and actions and actions.install then
         local ok_install, err = pcall(actions.install, BookVault)
@@ -54,6 +46,42 @@ function BookVault:init()
 
     if self.registerSimpleUIWithRetry then
         pcall(self.registerSimpleUIWithRetry, self)
+    end
+
+    return true
+end
+
+function BookVault:openBookVault()
+    if not self:loadImplementation() then
+        return
+    end
+    if self.show then
+        local ok, err = pcall(self.show, self)
+        if not ok then
+            logger.err("BookVault: failed to open", err)
+        end
+    end
+end
+
+function BookVault:addToMainMenu(menu_items)
+    menu_items.bookvault = {
+        text = _("BookVault"),
+        sorting_hint = "more_tools",
+        callback = function()
+            self:openBookVault()
+        end,
+    }
+end
+
+function BookVault:init()
+    -- Nothing optional is loaded here. This is intentional: plugin discovery
+    -- and visibility in Tools/User Plugins must never depend on BookVault's
+    -- feature modules, cover UI, Simple UI integration, or action layer.
+    local ok, err = pcall(function()
+        self.ui.menu:registerToMainMenu(self)
+    end)
+    if not ok then
+        logger.err("BookVault: main-menu registration failed", err)
     end
 end
 
