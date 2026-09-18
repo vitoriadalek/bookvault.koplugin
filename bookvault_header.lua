@@ -174,7 +174,7 @@ function Header:init()
         align="left",
         self.top_widget,
         VerticalSpan:new{width=Screen:scaleBySize(5)},
-        tabs,
+        self.tabs,
         UnderlineContainer:new{
             padding=0,
             linesize=Size.line.thin,
