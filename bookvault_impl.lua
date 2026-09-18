@@ -908,43 +908,7 @@ function BookVault:togglePrivate()
     if self.unlocked then self.unlocked=false; self:showStatusChooser(); return end
     if not self:hasPassword() then self:setPassword(function() self.unlocked=true; self:showStatusChooser() end) else self:askPassword(function(ok) if ok then self.unlocked=true; self:showStatusChooser() end end,_("Revelar conteúdo")) end
 end
-function BookVault:addToMainMenu(menu_items)
-    menu_items.bookvault={text=_("BookVault"),sorting_hint="more_tools",sub_item_table={
-        {text=_("Abrir biblioteca"),callback=function() self:showStatusChooser() end},
-        {text_func=function() return self.unlocked and "◉ ".._("Ocultar conteúdo") or "◉ ".._("Revelar conteúdo") end,callback=function() self:togglePrivate() end},
-        {text=_("Biblioteca"),separator=true,sub_item_table={
-            {text=_("Configurar pasta da biblioteca"),callback=function() self:chooseRoot() end},
-            {text=_("Categorias exibidas"),callback=function() self:showStatusVisibilityChooser() end},
-            {text=_("Coleções"),callback=function() self:showCollectionChooser() end},
-            {text=_("Coleções exibidas"),callback=function() self:showCollectionVisibilityChooser() end},
-        }},
-        {text=_("Aparência"),separator=true,sub_item_table={
-            {text=_("Personalizar aparência"),callback=function() self:showAppearanceSettings(self._last_menu) end},
-        }},
-        {text=_("Segurança"),separator=true,sub_item_table={
-            {text=_("Criar/alterar senha"),callback=function() self:setPassword() end},
-            {text=_("Proteger uma pasta"),callback=function() self:chooseManagedPath(false) end},
-            {text=_("Gerenciar pastas protegidas"),callback=function() self:listManagedPaths(false) end},
-        }},
-        {text=_("Privacidade"),separator=true,sub_item_table={
-            {text=_("Tornar uma pasta privada"),callback=function() self:chooseManagedPath(true) end},
-            {text=_("Gerenciar conteúdo privado"),callback=function() self:listManagedPaths(true) end},
-        }},
-    }}
-end
 function BookVault:show() self:showStatusChooser() end
 function BookVault:onSuspend() self.unlocked=false end
 function BookVault:onResume() self.unlocked=false end
-function BookVault:init() self:loadSettings(); self.ui.menu:registerToMainMenu(self) end
-
--- Install BookVault actions explicitly on the BookVault class only after the
--- class is fully defined. This keeps the standard KOReader plugin bootstrap.
-local ok_actions, actions = pcall(require, "bookvault_actions")
-if ok_actions and actions and actions.install then
-    local ok_install, err = pcall(actions.install, BookVault)
-    if not ok_install then logger.err("BookVault action layer install failed", err) end
-else
-    logger.err("BookVault action layer unavailable", actions)
-end
-
 return BookVault
