@@ -1008,6 +1008,7 @@ function M.install(BV)
                 }
             end)
             socketutil:reset_timeout()
+            pcall(f.close, f)
             if not ok or success ~= 1 or tonumber(code) ~= 200 or total <= 0 then
                 pcall(os.remove, output)
                 return false
@@ -1102,7 +1103,7 @@ function M.install(BV)
                     local applied = false
                     if bookinfo and bookinfo.setCustomCoverFromImage then
                         local call_ok = pcall(bookinfo.setCustomCoverFromImage, bookinfo, file, out)
-                        applied = call_ok and DocSettings.findCustomCoverFile(file) ~= nil
+                        applied = call_ok and DocSettings:findCustomCoverFile(file) ~= nil
                     end
                     pcall(os.remove, out)
 
