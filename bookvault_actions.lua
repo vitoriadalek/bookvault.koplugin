@@ -131,10 +131,9 @@ function M.install(BV)
     if BV._bookvault_actions_installed then return end
     BV._bookvault_actions_installed = true
 
-    -- Register a native Simple UI Quick Action as well as supporting the
-    -- older persisted plugin-key action. The registered descriptor captures
-    -- this plugin instance, so it remains callable from Homescreen contexts
-    -- where there is no live FileManager widget to resolve bookvault from.
+    -- Simple UI registration is performed from the live plugin instance
+    -- (not from the class table). This matters on Homescreen: the action
+    -- must capture the same BookVault instance that owns the live UI.
     function BV:registerSimpleUIAction()
         if self._bookvault_sui_registered then return true end
 
@@ -163,22 +162,108 @@ function M.install(BV)
         return true
     end
 
-    local function registerSimpleUIWithRetry()
-        if BV:registerSimpleUIAction() then return end
-        if BV._bookvault_sui_retry then return end
-        BV._bookvault_sui_retry = true
+    function BV:registerSimpleUIWithRetry()
+        if self:registerSimpleUIAction() then return true end
+        if self._bookvault_sui_retry then return false end
+
+        self._bookvault_sui_retry = true
         local attempts = 0
         local function retry()
-            BV._bookvault_sui_retry = false
+            self._bookvault_sui_retry = false
             attempts = attempts + 1
-            if BV:registerSimpleUIAction() or attempts >= 5 then return end
-            BV._bookvault_sui_retry = true
+            if self:registerSimpleUIAction() or attempts >= 5 then return end
+            self._bookvault_sui_retry = true
             UIManager:scheduleIn(2, retry)
         end
         UIManager:scheduleIn(0, retry)
+        return false
     end
 
-    registerSimpleUIWithRetry()
+    -- Migrate the old persisted Simple UI "plugin_key=bookvault" action to
+    -- the native registered action. Keep its position in the bottom bar and
+    -- Homescreen QA slots so the user does not have to recreate the action.
+    -- Only entries that explicitly target BookVault are touched.
+    function BV:migrateLegacySimpleUIActions()
+        local ok_qa, QA = pcall(require, "features/sui_quickactions")
+        if not ok_qa or type(QA) ~= "table" or type(QA.getCustomQAList) ~= "function"
+                or type(QA.getCustomQAConfig) ~= "function"
+                or type(QA.deleteCustomQA) ~= "function" then
+            return false
+        end
+
+        local ok_store, Store = pcall(require, "infra/sui_store")
+        if not ok_store or not Store or type(Store.get) ~= "function"
+                or type(Store.set) ~= "function" then
+            return false
+        end
+
+        local legacy_ids = {}
+        for _, id in ipairs(QA.getCustomQAList() or {}) do
+            local cfg = QA.getCustomQAConfig(id)
+            local key = tostring(cfg.plugin_key or ""):lower()
+            local label = tostring(cfg.label or ""):lower()
+            if key == "bookvault" or key:match("bookvault") or label == "bookvault" then
+                legacy_ids[#legacy_ids + 1] = id
+            end
+        end
+        if #legacy_ids == 0 then return false end
+
+        local changed = false
+        local legacy = {}
+        for _, id in ipairs(legacy_ids) do legacy[id] = true end
+
+        local function replace_ids(list)
+            if type(list) ~= "table" then return list, false end
+            local out, did_change = {}, false
+            for _, id in ipairs(list) do
+                if legacy[id] then
+                    out[#out + 1] = "bookvault"
+                    did_change = true
+                else
+                    out[#out + 1] = id
+                end
+            end
+            return out, did_change
+        end
+
+        local tabs = Store:get("simpleui_bar_tabs")
+        local new_tabs, tabs_changed = replace_ids(tabs)
+        if tabs_changed then Store:set("simpleui_bar_tabs", new_tabs); changed = true end
+
+        for slot = 1, 3 do
+            local key = "simpleui_hs_qa_" .. slot .. "_items"
+            local items = Store:get(key)
+            local new_items, items_changed = replace_ids(items)
+            if items_changed then Store:set(key, new_items); changed = true end
+        end
+
+        -- Replace legacy IDs inside Quick Action groups before deleting them.
+        for _, group_id in ipairs(QA.getCustomQAList() or {}) do
+            local items = QA.getQAFolderItems and QA.getQAFolderItems(group_id)
+            local new_items, items_changed = replace_ids(items)
+            if items_changed and QA.saveQAFolderItems then
+                QA.saveQAFolderItems(group_id, new_items)
+                changed = true
+            end
+        end
+
+        for _, id in ipairs(legacy_ids) do
+            pcall(QA.deleteCustomQA, id)
+            changed = true
+        end
+
+        if changed then
+            local mqa = package.loaded["modules/module_quick_actions"]
+            if mqa and mqa.invalidateCustomQACache then pcall(mqa.invalidateCustomQACache) end
+            local plugin = package.loaded["screens/sui_homescreen"]
+            if plugin and plugin._rebuildAllNavbars then pcall(plugin._rebuildAllNavbars, plugin) end
+            local ok_engine, ScreenEngine = pcall(require, "engines/sui_screen_engine")
+            if ok_engine and ScreenEngine and ScreenEngine.refreshAllLiveImmediate then
+                pcall(ScreenEngine.refreshAllLiveImmediate, false)
+            end
+        end
+        return changed
+    end
 
     -- Privacy is deliberately independent from folder protection.
     local oldLoad = BV.loadSettings
