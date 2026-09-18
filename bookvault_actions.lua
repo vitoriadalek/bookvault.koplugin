@@ -56,6 +56,20 @@ local function findSimpleUIBookVaultAction()
     if not ok_store or not store then return nil, nil end
     local tabs = store:get("simpleui_bar_tabs")
     if type(tabs) ~= "table" then return nil, nil end
+    -- Native BookVault Quick Action registered through Simple UI's public
+    -- registry. It avoids the context-sensitive plugin-key lookup used by
+    -- older persisted custom actions.
+    local ok_qa, QA = pcall(require, "features/sui_quickactions")
+    if ok_qa and QA and type(QA.getEntry) == "function" then
+        for _, action_id in ipairs(tabs) do
+            if action_id == "bookvault" then
+                local entry = QA.getEntry("bookvault")
+                if entry and entry.label == "BookVault" then
+                    return "bookvault", tabs
+                end
+            end
+        end
+    end
     for _, action_id in ipairs(tabs) do
         if type(action_id) == "string" and action_id:match("^custom_qa_%d+$") then
             local cfg = store:get("simpleui_qa_" .. action_id)
