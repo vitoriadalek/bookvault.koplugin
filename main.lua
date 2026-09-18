@@ -1,4 +1,3 @@
-require("bookvault_icons_bootstrap")
 local ButtonDialog = require("ui/widget/buttondialog")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
@@ -23,7 +22,6 @@ local sha2 = require("ffi/sha2")
 local logger = require("logger")
 local _ = require("gettext")
 local Screen = require("device").screen
-local BookVaultHeader = require("bookvault_header")
 
 local BookVault = WidgetContainer:extend{
     name = "bookvault", fullname = _("BookVault"), is_doc_only = false,
@@ -699,6 +697,21 @@ end
 
 function BookVault:makeBookMenu(name,title,items,view_key)
     local menu
+
+    -- Visual dependencies are lazy-loaded so a problem in a UI helper can
+    -- never make the BookVault plugin disappear from KOReader/Simple UI.
+    local ok_bootstrap = pcall(require, "bookvault_icons_bootstrap")
+    if not ok_bootstrap then
+        logger.warn("BookVault: icon bootstrap unavailable")
+    end
+    local ok_header, BookVaultHeader = pcall(require, "bookvault_header")
+    if not ok_header or not BookVaultHeader then
+        UIManager:show(InfoMessage:new{
+            text = _("BookVault não conseguiu carregar a interface visual. Verifique a instalação do plugin."),
+        })
+        return nil
+    end
+
     self:ensureBookVaultIcons()
     self:loadSettings()
     local appearance=self.settings.data.appearance
@@ -808,6 +821,7 @@ function BookVault:showLibrary(status,include_private)
         self.settings.data.last_status=status
         self:saveSettings()
         local menu=self:makeBookMenu("bookvault_library_"..status,_("BookVault"),items,"status:"..status)
+        if not menu then return end
         UIManager:show(menu)
         -- CoverMenu/MosaicMenu performs its own initial layout. Calling it twice
         -- here caused unnecessary cover work on first open.
@@ -890,7 +904,14 @@ end
 function BookVault:show() self:showStatusChooser() end
 function BookVault:onSuspend() self.unlocked=false end
 function BookVault:onResume() self.unlocked=false end
-function BookVault:init() self:loadSettings(); self.ui.menu:registerToMainMenu(self) end
+function BookVault:init()
+    -- Keep registration alive even if a non-essential UI component fails on
+    -- a particular KOReader build.
+    safe(function()
+        self:loadSettings()
+        self.ui.menu:registerToMainMenu(self)
+    end)
+end
 
 -- Install BookVault actions explicitly on the BookVault class.
 -- This is intentionally done after the class is fully defined and never by
