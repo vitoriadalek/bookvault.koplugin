@@ -14,6 +14,7 @@ local VerticalSpan = require("ui/widget/verticalspan")
 local Font = require("ui/font")
 local Screen = require("device").screen
 local Size = require("ui/size")
+local UIManager = require("ui/uimanager")
 local _ = require("gettext")
 
 local Header = InputContainer:extend{
@@ -40,6 +41,8 @@ function Header:init()
     local title = TextWidget:new{text="BookVault",face=Font:getFace("smalltfont",18),bold=true,padding=0}
     local subtitle = TextWidget:new{text=_("biblioteca pessoal"),face=Font:getFace("smallinfofont",11),
         fgcolor=Blitbuffer.COLOR_DARK_GRAY,padding=0}
+    self.title_widget = title
+    self.subtitle_widget = subtitle
     local identity = VerticalGroup:new{align="left",title,subtitle}
     local left = HorizontalGroup:new{close,HorizontalSpan:new{width=gap},logo,
         HorizontalSpan:new{width=Screen:scaleBySize(7)},identity}
@@ -74,6 +77,18 @@ function Header:init()
             dimen=Geom:new{w=self.width,h=Screen:scaleBySize(1)},VerticalSpan:new{width=0}},
         VerticalSpan:new{width=Screen:scaleBySize(4)}}
     self.dimen=Geom:new{x=0,y=0,w=self.width,h=self[1]:getSize().h}
+end
+
+function Header:setSelectionCount(count)
+    if not self.title_widget or not self.subtitle_widget then return end
+    if count and count > 0 then
+        self.title_widget:setText(tostring(count) .. " " .. _("selecionado(s)"))
+        self.subtitle_widget:setText(_("modo de seleção"))
+    else
+        self.title_widget:setText("BookVault")
+        self.subtitle_widget:setText(_("biblioteca pessoal"))
+    end
+    UIManager:setDirty(self, "ui", self.dimen)
 end
 
 function Header:getHeight() return self.dimen.h end
