@@ -922,8 +922,8 @@ function M.install(BV)
             local icon_name = "bookvault-cover-preview-" .. tostring(os.time()) .. "-" .. tostring(index)
             local icon_path = DataStorage:getDataDir() .. "/icons/" .. icon_name .. ".svg"
             local svg = string.format(
-                '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400"><rect width="300" height="400" fill="white"/><image x="0" y="0" width="300" height="400" preserveAspectRatio="xMidYMid meet" href="data:%s;base64,%s"/></svg>',
-                mime_type, encoded)
+                '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="300" height="400" viewBox="0 0 300 400"><rect width="300" height="400" fill="white"/><image x="0" y="0" width="300" height="400" preserveAspectRatio="xMidYMid meet" href="data:%s;base64,%s" xlink:href="data:%s;base64,%s"/></svg>',
+                mime_type, encoded, mime_type, encoded)
             local out = io.open(icon_path, "wb")
             if not out then return nil end
             out:write(svg)
