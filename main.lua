@@ -802,7 +802,7 @@ function BookVault:showBookVaultOptions()
     -- Reuse the same option tree exposed in KOReader's main menu, without creating
     -- a second settings system. The gear is simply another entry point to it.
     local options = self:getOptionsSubmenu()
-    local dialog = ButtonDialog:new{title=_("BookVault"), title_align="center", buttons={}}
+    local dialog
     local buttons = {}
     for _, item in ipairs(options) do
         buttons[#buttons + 1] = {{text=item.text_func and item.text_func() or item.text, callback=function()
@@ -825,7 +825,7 @@ function BookVault:showBookVaultOptions()
         end}}
     end
     buttons[#buttons + 1] = {{text=_("Fechar"), callback=function() UIManager:close(dialog) end}}
-    dialog.buttons = buttons
+    dialog = ButtonDialog:new{title=_("BookVault"), title_align="center", buttons=buttons}
     UIManager:show(dialog)
 end
 
