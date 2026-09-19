@@ -373,7 +373,15 @@ function BookVault:getBookMetadata(item)
     self._bookvault_metadata_cache = self._bookvault_metadata_cache or {}
     local path = normalize(item.path)
     local attr = lfs.attributes(path)
-    local fingerprint = attr and ((attr.modification or 0) .. ":" .. (attr.size or 0)) or "missing"
+    local custom = DocSettings.findCustomMetadataFile(path)
+    local custom_attr = custom and lfs.attributes(custom)
+    local cover = DocSettings.findCustomCoverFile(path)
+    local cover_attr = cover and lfs.attributes(cover)
+    local fingerprint = table.concat({
+        attr and attr.modification or 0, attr and attr.size or 0,
+        custom_attr and custom_attr.modification or 0, custom_attr and custom_attr.size or 0,
+        cover_attr and cover_attr.modification or 0, cover_attr and cover_attr.size or 0,
+    }, ":")
     local cached = self._bookvault_metadata_cache[path]
     if cached and cached.fingerprint == fingerprint then
         return cached.info
