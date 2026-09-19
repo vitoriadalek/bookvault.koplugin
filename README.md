@@ -24,7 +24,7 @@ Biblioteca visual para KOReader, projetada para telas e-ink: monocromática, lev
 - Informações do livro com dados nativos do KOReader.
 - Edição direta de título, autores, série, número da série, idioma, palavras-chave e descrição.
 - Visualização e alteração da capa pela tela de informações.
-- Busca de capas no Google Imagens somente quando solicitada, com prévias visuais e escolha antes da aplicação.
+- Busca de capas no Open Library + Google Books somente quando solicitada, com prévias visuais e escolha antes da aplicação.
 - Status de leitura.
 - Coleções.
 - Selecionar vários.
@@ -105,7 +105,7 @@ A privacidade é independente da proteção de pastas.
 
 ## Busca de capas
 
-A busca no Google Imagens é totalmente sob demanda.
+A busca no Open Library + Google Books é totalmente sob demanda.
 
 - Consulta usando título + autor.
 - Até 6 resultados.
