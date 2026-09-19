@@ -628,7 +628,7 @@ function BookVault:makeBookMenu(name,title,items,view_key)
 
     local function search_cb() self:showSearchDialog(menu) end
     local function sort_cb() self:showSortDialog(menu) end
-    local function settings_cb() self:showAppearanceSettings(menu) end
+    local function settings_cb() self:showBookVaultOptions() end
     local function status_cb(status) self:changeCategory(menu,status) end
 
     local header = BookVaultHeader:new{
