@@ -364,6 +364,11 @@ function M.install(BV)
                         pcall(DocSettings.updateLocation, file, dest)
                         pcall(function() require("readhistory"):updateItem(file, dest) end)
                         BookList.resetBookInfoCache(file)
+                        if self.invalidateLibraryCache then self:invalidateLibraryCache() end
+                        if self.invalidateBookMetadataCache then
+                            self:invalidateBookMetadataCache(file)
+                            self:invalidateBookMetadataCache(dest)
+                        end
                         item.path, item.filepath, item.text = dest, dest, name
                         refresh(menu)
                     else
@@ -410,6 +415,12 @@ function M.install(BV)
                         text = T(_("%1 arquivo(s) não puderam ser processados."), failed),
                     })
                 end
+                if changed > 0 then
+                    if owner.invalidateLibraryCache then owner:invalidateLibraryCache() end
+                    if owner.invalidateBookMetadataCache then
+                        for _, file in ipairs(paths) do owner:invalidateBookMetadataCache(file) end
+                    end
+                end
                 if move and changed > 0 then owner:leaveSelection(menu) end
                 refresh(menu)
             end,
@@ -448,6 +459,10 @@ function M.install(BV)
                 end
                 pcall(ReadCollection.write, ReadCollection)
                 pcall(function() require("readhistory"):clearMissing() end)
+                if self.invalidateLibraryCache then self:invalidateLibraryCache() end
+                if self.invalidateBookMetadataCache then
+                    for file in pairs(files) do self:invalidateBookMetadataCache(file) end
+                end
                 if failed > 0 then
                     UIManager:show(InfoMessage:new{
                         text = T(_("%1 arquivo(s) não puderam ser excluídos."), failed),
@@ -554,6 +569,7 @@ function M.install(BV)
         end
 
         local row = filemanagerutil.genStatusButtonsRow(doc_settings_or_file, function()
+            if self.invalidateLibraryCache then self:invalidateLibraryCache() end
             refresh(menu)
         end)
         local dialog
@@ -610,6 +626,10 @@ function M.install(BV)
             BookList.setBookInfoCacheProperty(file, "status", status)
             if saved then ds = saved end
         end
+        if self.invalidateLibraryCache then self:invalidateLibraryCache() end
+        if self.invalidateBookMetadataCache then
+            for file in pairs(files or {}) do self:invalidateBookMetadataCache(file) end
+        end
         refresh(menu)
     end
 
@@ -635,14 +655,6 @@ function M.install(BV)
             title = item.text or basename(item.path),
             title_align = "center",
             buttons = {
-                {{text = _("Copiar"), icon = "bookvault-copy", callback = function()
-                    closeIf(dialog)
-                    self:copyOrMoveBook(item, menu, false)
-                end}},
-                {{text = _("Mover"), icon = "bookvault-move", callback = function()
-                    closeIf(dialog)
-                    self:copyOrMoveBook(item, menu, true)
-                end}},
                 {{text = _("Mais ações / plugins"), icon = "bookvault-more", callback = function()
                     closeIf(dialog)
                     self:showPluginActions(menu, item)
