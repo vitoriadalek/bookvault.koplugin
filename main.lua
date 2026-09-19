@@ -817,7 +817,7 @@ function BookVault:showBookVaultOptions()
         buttons[#buttons + 1] = {{text=item.text_func and item.text_func() or item.text, callback=function()
             UIManager:close(dialog)
             if item.sub_item_table then
-                local sub = ButtonDialog:new{title=item.text, title_align="center", buttons={}}
+                local sub
                 local sub_buttons = {}
                 for _, child in ipairs(item.sub_item_table) do
                     sub_buttons[#sub_buttons + 1] = {{text=child.text_func and child.text_func() or child.text, callback=function()
@@ -826,7 +826,7 @@ function BookVault:showBookVaultOptions()
                     end}}
                 end
                 sub_buttons[#sub_buttons + 1] = {{text=_("Voltar"), callback=function() UIManager:close(sub); self:showBookVaultOptions() end}}
-                sub.buttons = sub_buttons
+                sub = ButtonDialog:new{title=item.text, title_align="center", buttons=sub_buttons}
                 UIManager:show(sub)
             elseif item.callback then
                 item.callback()
