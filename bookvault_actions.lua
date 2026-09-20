@@ -950,19 +950,26 @@ function M.install(BV)
             candidates[#candidates + 1] = candidate
         end
 
-        local ol_query
-        if isbn then
-            ol_query = "isbn:" .. isbn
-        else
-            ol_query = title
-            if authors ~= "" then ol_query = ol_query .. " " .. authors end
+        local queries = {}
+        local function addQuery(q)
+            q = tostring(q or ""):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+            if q == "" then return end
+            for _, existing in ipairs(queries) do
+                if existing == q then return end
+            end
+            queries[#queries + 1] = q
         end
-        local ol_url = "https://openlibrary.org/search.json?q=" .. urlmod.escape(ol_query)
-            .. "&limit=10&fields=key,title,author_name,cover_i,isbn,language,edition_key"
+        if isbn then addQuery("isbn:" .. isbn) end
+        if authors ~= "" then addQuery(title .. " " .. authors) else addQuery(title) end
+        if authors ~= "" and language then addQuery(title .. " " .. authors .. " " .. language) end
+        addQuery(title)
 
-        local ol_data = requestJSON(ol_url)
-        if ol_data and type(ol_data.docs) == "table" then
-            for _, doc in ipairs(ol_data.docs) do
+        local function searchOpenLibrary(q)
+            local url = "https://openlibrary.org/search.json?q=" .. urlmod.escape(q)
+                .. "&limit=10&fields=key,title,author_name,cover_i,isbn,language,edition_key"
+            local data = requestJSON(url)
+            if not data or type(data.docs) ~= "table" then return end
+            for _, doc in ipairs(data.docs) do
                 if type(doc) == "table" and doc.cover_i then
                     local doc_isbn = firstIdentifier(doc.isbn)
                     local cover_id = tostring(doc.cover_i)
@@ -980,19 +987,12 @@ function M.install(BV)
             end
         end
 
-        local gb_query
-        if isbn then
-            gb_query = "isbn:" .. isbn
-        else
-            gb_query = "intitle:" .. title
-            if authors ~= "" then gb_query = gb_query .. " inauthor:" .. authors end
-        end
-        local gb_url = "https://www.googleapis.com/books/v1/volumes?q=" .. urlmod.escape(gb_query)
-            .. "&maxResults=10&printType=books"
-
-        local gb_data = requestJSON(gb_url)
-        if gb_data and type(gb_data.items) == "table" then
-            for _, item in ipairs(gb_data.items) do
+        local function searchGoogleBooks(q)
+            local url = "https://www.googleapis.com/books/v1/volumes?q=" .. urlmod.escape(q)
+                .. "&maxResults=10&printType=books"
+            local data = requestJSON(url)
+            if not data or type(data.items) ~= "table" then return end
+            for _, item in ipairs(data.items) do
                 local info = type(item) == "table" and item.volumeInfo or nil
                 local images = info and info.imageLinks or nil
                 if type(info) == "table" and type(images) == "table" then
@@ -1018,6 +1018,12 @@ function M.install(BV)
                     end
                 end
             end
+        end
+
+        for _, query in ipairs(queries) do
+            searchOpenLibrary(query)
+            searchGoogleBooks(query)
+            if #candidates >= 6 then break end
         end
 
         table.sort(candidates, function(a, b)
