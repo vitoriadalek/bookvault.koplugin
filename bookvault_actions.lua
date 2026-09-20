@@ -754,7 +754,7 @@ function M.install(BV)
             end}},
             {{text = _("Buscar capa"), icon = "search", callback = function()
                 closeIf(dialog)
-                self:searchGoogleImagesForCover(item.path)
+                self:searchBookCovers(item.path)
             end}},
             {{text = _("Abrir localização"), icon = "folder", callback = function()
                 closeIf(dialog)
@@ -931,8 +931,20 @@ function M.install(BV)
                 return
             end
             candidate.original = candidate.original or candidate.preview
-            candidate.key = candidate.key or candidate.preview
-            if seen[candidate.key] then return end
+            local isbn_key = candidate.isbn and candidate.isbn:gsub("[^%dXx]", "") or ""
+            local title_key = normalizeText(candidate.title)
+            local author_key = normalizeText(candidate.authors)
+            candidate.key = isbn_key ~= "" and ("isbn:" .. isbn_key)
+                or ("book:" .. title_key .. "|" .. author_key)
+            if seen[candidate.key] then
+                for i, existing in ipairs(candidates) do
+                    if existing.key == candidate.key and candidate.score > (existing.score or 0) then
+                        candidate.score = scoreCandidate(candidate)
+                        candidates[i] = candidate
+                    end
+                end
+                return
+            end
             candidate.score = scoreCandidate(candidate)
             seen[candidate.key] = true
             candidates[#candidates + 1] = candidate
