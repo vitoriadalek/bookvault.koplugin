@@ -225,6 +225,22 @@ function BookVault:invalidateBookMetadataCache(file)
     end
 end
 
+function BookVault:onInvalidateMetadataCache(file)
+    if file then
+        self:invalidateBookMetadataCache(file)
+    else
+        self:invalidateBookMetadataCache()
+    end
+end
+
+function BookVault:onBookMetadataChanged(file)
+    if file then
+        self:invalidateBookMetadataCache(file)
+    else
+        self:invalidateBookMetadataCache()
+    end
+end
+
 function BookVault:makeBookItem(path)
     local normalized = normalize(path)
     if not normalized then return nil end
@@ -462,8 +478,8 @@ function BookVault:getBookMetadata(item)
     end
     local custom_file = nil
     local cover_file = nil
-    pcall(function() custom_file = DocSettings.findCustomMetadataFile(path) end)
-    pcall(function() cover_file = DocSettings.findCustomCoverFile(path) end)
+    pcall(function() custom_file = DocSettings:findCustomMetadataFile(path) end)
+    pcall(function() cover_file = DocSettings:findCustomCoverFile(path) end)
     local custom_attr = custom_file and lfs.attributes(custom_file)
     local cover_attr = cover_file and lfs.attributes(cover_file)
     local fingerprint = table.concat({
@@ -932,6 +948,7 @@ function BookVault:showCollection(collection_name)
     safe(function()
         local items=self:collectionItems(collection_name,self.privacyIncludePrivate and self:privacyIncludePrivate() or self.unlocked)
         local menu=self:makeBookMenu("bookvault_collection_"..collection_name,_("BookVault").." · "..collection_name,items,"collection:"..collection_name)
+        if not menu then return end
         UIManager:show(menu)
         if menu._bookvault_visual then
             local old_no_refresh = menu.no_refresh_covers
