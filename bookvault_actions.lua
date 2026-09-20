@@ -1105,34 +1105,31 @@ function M.install(BV)
             return #candidates >= 6 and countStrong() >= 6
         end
 
-        local stage = 0
         if wanted_isbn then
-            stage = 1
-            if runStage(stage, "isbn:" .. wanted_isbn, "isbn:" .. wanted_isbn) then stage = 4 else stage = 1 end
+            runStage(1, "isbn:" .. wanted_isbn, "isbn:" .. wanted_isbn)
         end
 
         if #candidates < 6 then
-            stage = 2
             local ol_query = "title:" .. title
             local gb_query = "intitle:" .. title
             if authors ~= "" then
                 ol_query = ol_query .. " author:" .. authors
                 gb_query = gb_query .. " inauthor:" .. authors
             end
-            runStage(stage, ol_query, gb_query)
+            runStage(2, ol_query, gb_query)
         end
 
-        if #candidates < 6 and language and authors ~= "" then
-            stage = 3
-            local ol_query = "title:" .. title .. " author:" .. authors
+        if #candidates < 6 and language then
+            local ol_query = "title:" .. title
+            if authors ~= "" then ol_query = ol_query .. " author:" .. authors end
             if openlibrary_language then ol_query = ol_query .. " language:" .. openlibrary_language end
-            local gb_query = "intitle:" .. title .. " inauthor:" .. authors
-            runStage(stage, ol_query, gb_query)
+            local gb_query = "intitle:" .. title
+            if authors ~= "" then gb_query = gb_query .. " inauthor:" .. authors end
+            runStage(3, ol_query, gb_query)
         end
 
         if #candidates < 6 then
-            stage = 4
-            runStage(stage, "title:" .. title, "intitle:" .. title)
+            runStage(4, "title:" .. title, "intitle:" .. title)
         end
 
         sortCandidates()
