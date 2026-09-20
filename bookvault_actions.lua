@@ -551,8 +551,6 @@ function M.install(BV)
                 if menu then
                     self:invalidateLibraryCache()
                     self:leaveSelection(menu)
-                    menu._bookvault_source_items = self:scanBooks(self:privacyIncludePrivate())
-                    menu.item_table = menu._bookvault_source_items
                     refresh(menu)
                 end
             end,
