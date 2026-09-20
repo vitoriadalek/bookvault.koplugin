@@ -1081,13 +1081,76 @@ function BookVault:onResume()
     self:invalidateBookMetadataCache()
 end
 function BookVault:init()
-    -- Use the exact native WidgetContainer/FileManagerMenu registration path
-    -- used by KOReader's working plugin baseline. Do not defer or wrap this
-    -- registration: FileManager creates the menu before plugin instances are
-    -- initialized, so self.ui.menu is the authoritative registry here.
+    -- Register through KOReader's native FileManagerMenu registry. After the
+    -- native sorter builds the hierarchy, move only BookVault into the actual
+    -- Tools submenu. This is scoped to this FileManagerMenu instance and does
+    -- not modify KOReader's global menu-order files or user settings.
     safe(function()
         self:loadSettings()
-        self.ui.menu:registerToMainMenu(self)
+        local menu = self.ui.menu
+        if not menu or type(menu.registerToMainMenu) ~= "function" then
+            error("FileManagerMenu registry unavailable")
+        end
+
+        if not menu._bookvault_tools_placement then
+            local original_set_update = menu.setUpdateItemTable
+            if type(original_set_update) == "function" then
+                menu.setUpdateItemTable = function(m, ...)
+                    original_set_update(m, ...)
+
+                    local function find_and_remove(list)
+                        if type(list) ~= "table" then return nil end
+                        for i = #list, 1, -1 do
+                            local item = list[i]
+                            if type(item) == "table" then
+                                if item.id == "bookvault" then
+                                    table.remove(list, i)
+                                    return item
+                                end
+                                local found = find_and_remove(item.sub_item_table)
+                                if found then return found end
+                            end
+                        end
+                    end
+
+                    local function find_tools_parent(list)
+                        if type(list) ~= "table" then return nil end
+                        local anchors = {
+                            more_tools=true, read_timer=true, calibre=true, exporter=true,
+                            statistics=true, cloudstorage=true, move_to_archive=true,
+                            wallabag=true, news_downloader=true, text_editor=true,
+                            profiles=true, qrclipboard=true,
+                        }
+                        local has_tools_item = false
+                        for _, item in ipairs(list) do
+                            if type(item) == "table" and anchors[item.id] then
+                                has_tools_item = true
+                                break
+                            end
+                        end
+                        if has_tools_item then return list end
+                        for _, item in ipairs(list) do
+                            if type(item) == "table" then
+                                local found = find_tools_parent(item.sub_item_table)
+                                if found then return found end
+                            end
+                        end
+                    end
+
+                    local bookvault_item = find_and_remove(m.tab_item_table)
+                    local tools_parent = find_tools_parent(m.tab_item_table)
+                    if bookvault_item and tools_parent then
+                        bookvault_item.sorting_hint = nil
+                        tools_parent[#tools_parent + 1] = bookvault_item
+                    elseif bookvault_item then
+                        logger.warn("BookVault: Tools submenu could not be located after menu sorting")
+                    end
+                end
+                menu._bookvault_tools_placement = true
+            end
+        end
+
+        menu:registerToMainMenu(self)
     end)
 end
 
