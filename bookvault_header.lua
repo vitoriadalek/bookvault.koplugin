@@ -67,6 +67,7 @@ function Header:_buildTabs()
 
     local tabs = HorizontalGroup:new{align="center"}
     local tab_width = math.floor(self.width/#visible)
+    self._status_tabs = {}
     for _,status in ipairs(visible) do
         local key = status.key
         local active = self.active_status == key
@@ -85,13 +86,15 @@ function Header:_buildTabs()
         if button.label_widget then
             button.label_widget.fgcolor=active and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_DARK_GRAY
         end
-        table.insert(tabs,UnderlineContainer:new{
+        local underline = UnderlineContainer:new{
             padding=0,
             linesize=active and Size.line.thick or 0,
             color=Blitbuffer.COLOR_BLACK,
             dimen=Geom:new{w=tab_width,h=Screen:scaleBySize(36)},
             button,
-        })
+        }
+        self._status_tabs[key] = {button=button, underline=underline}
+        table.insert(tabs, underline)
     end
     self.tabs = tabs
 end
@@ -258,10 +261,15 @@ end
 function Header:setActiveStatus(status)
     if not status then return end
     self.active_status = status
-    self:_buildTabs()
-    if self[1] then
-        self[1][3] = self.tabs
-        self.dimen.h = self[1]:getSize().h
+    for key, tab in pairs(self._status_tabs or {}) do
+        local active = key == status
+        tab.underline.linesize = active and Size.line.thick or 0
+        local button = tab.button
+        button.text_font_bold = active
+        if button.label_widget then
+            button.label_widget.text_font_bold = active
+            button.label_widget.fgcolor = active and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_DARK_GRAY
+        end
     end
     UIManager:setDirty(self, "ui", self.dimen)
 end
