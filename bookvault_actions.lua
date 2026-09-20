@@ -1064,10 +1064,10 @@ function M.install(BV)
             end
         end
 
-        local function addGoogleResults(query, stage)
+        local function addGoogleResults(query, stage, restrict_language)
             local q = "https://www.googleapis.com/books/v1/volumes?q=" .. urlmod.escape(query)
                 .. "&maxResults=10&printType=books"
-            if google_language then q = q .. "&langRestrict=" .. urlmod.escape(google_language) end
+            if restrict_language and google_language then q = q .. "&langRestrict=" .. urlmod.escape(google_language) end
             local data = requestJSON(q)
             if not data or type(data.items) ~= "table" then return end
             for _, item in ipairs(data.items) do
@@ -1098,9 +1098,9 @@ function M.install(BV)
             end
         end
 
-        local function runStage(stage, ol_query, gb_query)
+        local function runStage(stage, ol_query, gb_query, restrict_language)
             addOpenLibraryResults(ol_query, stage)
-            addGoogleResults(gb_query, stage)
+            addGoogleResults(gb_query, stage, restrict_language)
             sortCandidates()
         end
 
@@ -1128,7 +1128,7 @@ function M.install(BV)
             if openlibrary_language then ol_query = ol_query .. " language:" .. openlibrary_language end
             local gb_query = "intitle:" .. title
             if authors ~= "" then gb_query = gb_query .. " inauthor:" .. authors end
-            runStage(3, ol_query, gb_query)
+            runStage(3, ol_query, gb_query, true)
         end
 
         if not enoughCandidates() then
