@@ -932,6 +932,7 @@ function BookVault:showCollection(collection_name)
     safe(function()
         local items=self:collectionItems(collection_name,self.privacyIncludePrivate and self:privacyIncludePrivate() or self.unlocked)
         local menu=self:makeBookMenu("bookvault_collection_"..collection_name,_("BookVault").." · "..collection_name,items,"collection:"..collection_name)
+        if not menu then return end
         UIManager:show(menu)
         if menu._bookvault_visual then
             local old_no_refresh = menu.no_refresh_covers
