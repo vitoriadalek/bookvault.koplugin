@@ -1074,12 +1074,13 @@ function BookVault:onResume()
     self:invalidateBookMetadataCache()
 end
 function BookVault:init()
-    -- Keep registration alive even if a non-essential UI component fails on
-    -- a particular KOReader build.
-    safe(function()
-        self:loadSettings()
+    -- Register the plugin before loading any persisted state. A malformed or
+    -- outdated settings file must never make BookVault disappear from Tools.
+    -- This follows KOReader's native WidgetContainer plugin registration path.
+    if self.ui and self.ui.menu then
         self.ui.menu:registerToMainMenu(self)
-    end)
+    end
+    self:loadSettings()
 end
 
 -- Install BookVault actions explicitly on the BookVault class.
