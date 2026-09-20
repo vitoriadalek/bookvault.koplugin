@@ -1045,10 +1045,32 @@ function BookVault:togglePrivate()
     if not self:hasPassword() then self:setPassword(function() self.unlocked=true; self:showStatusChooser() end) else self:askPassword(function(ok) if ok then self.unlocked=true; self:showStatusChooser() end end,_("Revelar conteúdo")) end
 end
 function BookVault:addToMainMenu(menu_items)
-    -- KOReader's standard plugin destination is Tools > More tools.
-    -- Registration itself is deferred to FileManagerMenu/ReaderMenu's native
-    -- setUpdateItemTable() flow; do not inject into menu_items from init().
-    menu_items.bookvault={text=_("BookVault"),sorting_hint="more_tools",sub_item_table={
+    -- BookVault is a primary FileManager/Reader tool, not a "More tools"
+    -- entry.  KOReader's MenuSorter consumes the top-level "tools" entry
+    -- before it processes sorting_hint values, so sorting_hint="tools" is
+    -- unsafe on current KOReader.  Add our id to the actual Tools order
+    -- instead; this is the same native menu-building path used by KOReader.
+    local placed_in_tools = false
+    local ok_fm, fm_order = pcall(require, "ui/elements/filemanager_menu_order")
+    if ok_fm and type(fm_order) == "table" and type(fm_order.tools) == "table" then
+        local found = false
+        for _, id in ipairs(fm_order.tools) do
+            if id == "bookvault" then found = true break end
+        end
+        if not found then fm_order.tools[#fm_order.tools + 1] = "bookvault" end
+        placed_in_tools = true
+    end
+    local ok_reader, reader_order = pcall(require, "ui/elements/reader_menu_order")
+    if ok_reader and type(reader_order) == "table" and type(reader_order.tools) == "table" then
+        local found = false
+        for _, id in ipairs(reader_order.tools) do
+            if id == "bookvault" then found = true break end
+        end
+        if not found then reader_order.tools[#reader_order.tools + 1] = "bookvault" end
+        placed_in_tools = true
+    end
+
+    menu_items.bookvault={text=_("BookVault"),sorting_hint=placed_in_tools and nil or "more_tools",sub_item_table={
         {text=_("Abrir biblioteca"),callback=function() self:showStatusChooser() end},
         {text_func=function() return self.unlocked and "◉ ".._("Ocultar conteúdo") or "◉ ".._("Revelar conteúdo") end,callback=function() self:togglePrivate() end},
         {text=_("Biblioteca"),separator=true,sub_item_table={
