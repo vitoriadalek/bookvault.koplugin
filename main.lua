@@ -15,6 +15,7 @@ local ReaderUI = require("apps/reader/readerui")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local BookList = require("ui/widget/booklist")
+local DocSettings = require("docsettings")
 local DocumentRegistry = require("document/documentregistry")
 local ffiUtil = require("ffi/util")
 local lfs = require("libs/libkoreader-lfs")
@@ -195,7 +196,7 @@ end
 function BookVault:invalidateStatusCache(file)
     self._bookvault_status_cache = self._bookvault_status_cache or {}
     if file then
-        self._bookvault_status_cache[file] = nil
+        self._bookvault_status_cache[normalize(file)] = nil
     else
         self._bookvault_status_cache = {}
     end
@@ -203,23 +204,96 @@ function BookVault:invalidateStatusCache(file)
 end
 
 function BookVault:getBookStatusCached(file)
-    if not file then return nil end
+    local key = normalize(file)
+    if not key then return nil end
     self._bookvault_status_cache = self._bookvault_status_cache or {}
-    local cached = self._bookvault_status_cache[file]
+    local cached = self._bookvault_status_cache[key]
     if cached ~= nil then
         return cached ~= false and cached or nil
     end
-    local ok, status = pcall(BookList.getBookStatus, file)
-    self._bookvault_status_cache[file] = ok and (status or false) or false
+    local ok, status = pcall(BookList.getBookStatus, key)
+    self._bookvault_status_cache[key] = ok and (status or false) or false
     return status
 end
 
 function BookVault:invalidateBookMetadataCache(file)
     if file then
-        if self._bookvault_metadata_cache then self._bookvault_metadata_cache[file] = nil end
+        local key = normalize(file)
+        if self._bookvault_metadata_cache and key then self._bookvault_metadata_cache[key] = nil end
     else
         self._bookvault_metadata_cache = {}
     end
+end
+
+function BookVault:makeBookItem(path)
+    local normalized = normalize(path)
+    if not normalized then return nil end
+    local attr = lfs.attributes(normalized)
+    if not attr or attr.mode ~= "file" then return nil end
+    local ok, provider = pcall(DocumentRegistry.hasProvider, DocumentRegistry, normalized)
+    if not ok or not provider then return nil end
+    return {
+        path = normalized,
+        filepath = normalized,
+        text = ffiUtil.basename(normalized) or normalized:match("[^/]+$") or normalized,
+        attr = attr,
+        is_file = true,
+    }
+end
+
+function BookVault:updateMenuPath(menu, old_path, new_path, is_copy)
+    if not menu or not new_path then return end
+    local old_key = old_path and normalize(old_path) or nil
+    local new_item = self:makeBookItem(new_path)
+    local include_private = self.privacyIncludePrivate and self:privacyIncludePrivate() or false
+    local root = self:getRoot()
+    local visible = new_item and root and contains(root, new_item.path)
+        and (include_private or not self:isPrivate(new_item.path))
+    local view_status = menu._bookvault_view_key and menu._bookvault_view_key:match("^status:(.+)$") or nil
+    if visible and view_status and view_status ~= "all" then
+        visible = self:getBookStatusCached(new_item.path) == view_status
+    end
+
+    local function replace_path(list, key, replacement)
+        if not list or not key then return false end
+        for i, item in ipairs(list) do
+            if item and normalize(item.path) == key then
+                if replacement then list[i] = replacement else table.remove(list, i) end
+                return true
+            end
+        end
+        return false
+    end
+
+    local source = menu._bookvault_source_items
+    local filtered = menu._bookvault_filtered_items
+    local table_items = menu.item_table
+
+    if old_key and not is_copy then
+        replace_path(source, old_key, visible and new_item or nil)
+        if filtered then replace_path(filtered, old_key, visible and new_item or nil) end
+        replace_path(table_items, old_key, visible and new_item or nil)
+    end
+
+    if is_copy and visible and not filtered and source and table_items then
+        source[#source + 1] = new_item
+        table_items[#table_items + 1] = new_item
+    end
+end
+
+function BookVault:removeMenuPath(menu, path)
+    if not menu or not path then return end
+    local key = normalize(path)
+    if not key then return end
+    local function remove_from(list)
+        if not list then return end
+        for i = #list, 1, -1 do
+            if list[i] and normalize(list[i].path) == key then table.remove(list, i) end
+        end
+    end
+    remove_from(menu._bookvault_source_items)
+    remove_from(menu._bookvault_filtered_items)
+    remove_from(menu.item_table)
 end
 
 function BookVault:scanBooks(include_private)
@@ -377,18 +451,58 @@ end
 
 function BookVault:getBookMetadata(item)
     if not item or not item.path then return {} end
+    local path = normalize(item.path)
+    if not path then return {} end
     self._bookvault_metadata_cache = self._bookvault_metadata_cache or {}
-    if self._bookvault_metadata_cache[item.path] ~= nil then
-        return self._bookvault_metadata_cache[item.path]
+
+    local attr = lfs.attributes(path)
+    if not attr or attr.mode ~= "file" then
+        self._bookvault_metadata_cache[path] = nil
+        return {}
     end
+    local custom_file = nil
+    local cover_file = nil
+    pcall(function() custom_file = DocSettings.findCustomMetadataFile(path) end)
+    pcall(function() cover_file = DocSettings.findCustomCoverFile(path) end)
+    local custom_attr = custom_file and lfs.attributes(custom_file)
+    local cover_attr = cover_file and lfs.attributes(cover_file)
+    local fingerprint = table.concat({
+        attr.modification or 0, attr.size or 0,
+        custom_attr and custom_attr.modification or 0, custom_attr and custom_attr.size or 0,
+        cover_attr and cover_attr.modification or 0, cover_attr and cover_attr.size or 0,
+    }, ":")
+
+    local cached = self._bookvault_metadata_cache[path]
+    if cached and cached.fingerprint == fingerprint then
+        local volatile = BookList.getBookInfo(path) or {}
+        cached.info.status = self:getBookStatusCached(path)
+        cached.info.progress = volatile.percent_finished
+        cached.info.percent_finished = volatile.percent_finished
+        cached.info.size = attr.size
+        cached.info.location = path
+        cached.info.cover = cover_file
+        cached.info.tags = cached.info.tags or cached.info.keywords
+        return cached.info
+    end
+
     local bim=self:loadBookInfoManager()
     if not bim then return {} end
-    local ok_info,info=pcall(bim.getBookInfo,bim,item.path,false)
+    local ok_info,info=pcall(bim.getBookInfo,bim,path,false)
     if not ok_info or type(info)~="table" then
-        self._bookvault_metadata_cache[item.path] = {}
-        return self._bookvault_metadata_cache[item.path]
+        self._bookvault_metadata_cache[path] = { fingerprint = fingerprint, info = {} }
+        return self._bookvault_metadata_cache[path].info
     end
-    self._bookvault_metadata_cache[item.path] = info
+
+    local volatile = BookList.getBookInfo(path) or {}
+    info.status = self:getBookStatusCached(path)
+    info.progress = volatile.percent_finished
+    info.percent_finished = volatile.percent_finished
+    info.size = attr.size
+    info.location = path
+    info.cover = cover_file
+    info.tags = info.tags or info.keywords
+
+    self._bookvault_metadata_cache[path] = { fingerprint = fingerprint, info = info }
     return info
 end
 
@@ -435,7 +549,10 @@ function BookVault:sortBookVaultItems(menu,mode,direction)
     menu.item_table=items; menu.page=1
     if not menu._bookvault_filtered_items then menu._bookvault_source_items=items end
     if menu._bookvault_sort_dialog then UIManager:close(menu._bookvault_sort_dialog); menu._bookvault_sort_dialog=nil end
-    menu:updateItems()
+    local old_no_refresh = menu.no_refresh_covers
+    menu.no_refresh_covers = true
+    pcall(menu.updateItems, menu)
+    menu.no_refresh_covers = old_no_refresh
 end
 
 function BookVault:sortDirectionLabel(mode,direction)
@@ -488,7 +605,11 @@ function BookVault:showSearchDialog(menu)
                         if text:find(query,1,true) then filtered[#filtered+1]=item end
                     end
                 end
-                menu._bookvault_filtered_items=filtered; menu.item_table=filtered; menu.page=1; menu:updateItems()
+                menu._bookvault_filtered_items=filtered; menu.item_table=filtered; menu.page=1
+                local old_no_refresh = menu.no_refresh_covers
+                menu.no_refresh_covers = true
+                pcall(menu.updateItems, menu)
+                menu.no_refresh_covers = old_no_refresh
             end},
         }},
     }
@@ -811,7 +932,15 @@ function BookVault:showCollection(collection_name)
     safe(function()
         local items=self:collectionItems(collection_name,self.privacyIncludePrivate and self:privacyIncludePrivate() or self.unlocked)
         local menu=self:makeBookMenu("bookvault_collection_"..collection_name,_("BookVault").." · "..collection_name,items,"collection:"..collection_name)
-        UIManager:show(menu); menu:updateItems()
+        UIManager:show(menu)
+        if menu._bookvault_visual then
+            local old_no_refresh = menu.no_refresh_covers
+            menu.no_refresh_covers = true
+            pcall(menu.updateItems, menu, 1, true)
+            menu.no_refresh_covers = old_no_refresh
+        else
+            pcall(menu.updateItems, menu)
+        end
     end)
 end
 function BookVault:showCollectionChooser()
@@ -919,8 +1048,14 @@ function BookVault:addToMainMenu(menu_items)
     }}
 end
 function BookVault:show() self:showStatusChooser() end
-function BookVault:onSuspend() self.unlocked=false end
-function BookVault:onResume() self.unlocked=false end
+function BookVault:onSuspend()
+    self.unlocked=false
+end
+function BookVault:onResume()
+    self.unlocked=false
+    self:invalidateStatusCache()
+    self:invalidateBookMetadataCache()
+end
 function BookVault:init()
     -- Keep registration alive even if a non-essential UI component fails on
     -- a particular KOReader build.
