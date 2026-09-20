@@ -435,7 +435,7 @@ function M.install(BV)
                         if self.invalidateBookMetadataCache then self:invalidateBookMetadataCache(file); self:invalidateBookMetadataCache(dest) end
                         if self.invalidateStatusCache then self:invalidateStatusCache(file); self:invalidateStatusCache(dest) end
                         item.path, item.filepath, item.text = dest, dest, name
-                        refresh(menu, true)
+                        refresh(menu)
                     else
                         UIManager:show(InfoMessage:new{ text = _("Não foi possível renomear o arquivo.") })
                     end
@@ -640,58 +640,54 @@ function M.install(BV)
         local first = next(files)
         if not first then return end
 
-        local doc_settings_or_file
-        if count(files) == 1 then
-            doc_settings_or_file = first
-        else
-            doc_settings_or_file = first
+        local n = count(files)
+        if n > 1 then
+            local dialog
+            local statuses = {
+                { "reading", _("Lendo") },
+                { "abandoned", _("Em espera") },
+                { "complete", _("Concluídos") },
+            }
+            local buttons = {}
+            for _, entry in ipairs(statuses) do
+                local status, label = entry[1], entry[2]
+                buttons[#buttons + 1] = {{
+                    text = label,
+                    callback = function()
+                        closeIf(dialog)
+                        self:setStatusForFiles(files, status, menu)
+                    end,
+                }}
+            end
+            buttons[#buttons + 1] = {{
+                text = _("Cancelar"),
+                callback = function() closeIf(dialog) end,
+            }}
+            dialog = ButtonDialog:new{
+                title = T(_("Status de %1 livros"), n),
+                title_align = "center",
+                buttons = buttons,
+            }
+            UIManager:show(dialog)
+            return
         end
 
-        local row = filemanagerutil.genStatusButtonsRow(doc_settings_or_file, function()
+        local row = filemanagerutil.genStatusButtonsRow(first, function()
             if self.invalidateStatusCache then self:invalidateStatusCache(first) end
             if self.invalidateBookMetadataCache then self:invalidateBookMetadataCache(first) end
+            self._bookvault_status_index = nil
             refresh(menu)
         end)
         local dialog
         dialog = ButtonDialog:new{
-            title = count(files) == 1 and _("Status de leitura") or T(_("Status de %1 livros"), count(files)),
+            title = _("Status de leitura"),
             title_align = "center",
             buttons = {
                 row,
                 {{
-                    text = _("Aplicar aos selecionados"),
-                    callback = function()
-                        local selected_status = nil
-                        -- Status row's callbacks already write the first item, so for
-                        -- multi-selection use the native summary API explicitly below.
-                        closeIf(dialog)
-                        local choose
-                        local statuses = {
-                            { "reading", _("Lendo") },
-                            { "abandoned", _("Em espera") },
-                            { "complete", _("Concluídos") },
-                        }
-                        choose = ButtonDialog:new{
-                            title = _("Aplicar status"),
-                            buttons = {
-                                {{ text = statuses[1][2], callback = function()
-                                    closeIf(choose)
-                                    self:setStatusForFiles(files, "reading", menu)
-                                end }},
-                                {{ text = statuses[2][2], callback = function()
-                                    closeIf(choose)
-                                    self:setStatusForFiles(files, "abandoned", menu)
-                                end }},
-                                {{ text = statuses[3][2], callback = function()
-                                    closeIf(choose)
-                                    self:setStatusForFiles(files, "complete", menu)
-                                end }},
-                            },
-                        }
-                        UIManager:show(choose)
-                    end,
+                    text = _("Cancelar"),
+                    callback = function() closeIf(dialog) end,
                 }},
-                {{ text = _("Cancelar"), callback = function() closeIf(dialog) end }},
             },
         }
         UIManager:show(dialog)
