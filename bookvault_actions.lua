@@ -44,11 +44,14 @@ local function safe(fn)
     return ok
 end
 
-local function refresh(menu)
+local function refresh(menu, refresh_covers)
     if not menu then return end
+    local old_no_refresh = menu.no_refresh_covers
+    if not refresh_covers then menu.no_refresh_covers = true end
     pcall(function()
         if menu.updateItems then menu:updateItems(1, true) end
     end)
+    menu.no_refresh_covers = old_no_refresh
 end
 
 local function findSimpleUIBookVaultAction()
@@ -427,11 +430,12 @@ function M.install(BV)
                         pcall(DocSettings.updateLocation, file, dest)
                         pcall(function() require("readhistory"):updateItem(file, dest) end)
                         BookList.resetBookInfoCache(file)
+                        BookList.resetBookInfoCache(dest)
                         if self.invalidateLibraryCache then self:invalidateLibraryCache() end
                         if self.invalidateBookMetadataCache then self:invalidateBookMetadataCache(file); self:invalidateBookMetadataCache(dest) end
                         if self.invalidateStatusCache then self:invalidateStatusCache(file); self:invalidateStatusCache(dest) end
                         item.path, item.filepath, item.text = dest, dest, name
-                        refresh(menu)
+                        refresh(menu, true)
                     else
                         UIManager:show(InfoMessage:new{ text = _("Não foi possível renomear o arquivo.") })
                     end
@@ -463,10 +467,29 @@ function M.install(BV)
                             if ok then
                                 pcall(DocSettings.updateLocation, file, dest)
                                 pcall(function() require("readhistory"):updateItem(file, dest) end)
+                                BookList.resetBookInfoCache(file)
+                                BookList.resetBookInfoCache(dest)
+                                if owner.invalidateBookMetadataCache then
+                                    owner:invalidateBookMetadataCache(file)
+                                    owner:invalidateBookMetadataCache(dest)
+                                end
+                                if owner.invalidateStatusCache then
+                                    owner:invalidateStatusCache(file)
+                                    owner:invalidateStatusCache(dest)
+                                end
+                                if owner.updateMenuPath then
+                                    owner:updateMenuPath(menu, file, dest, false)
+                                end
                             end
                         else
                             ok = ffiUtil.copyFile(file, dest)
-                            if ok then pcall(DocSettings.updateLocation, file, dest, true) end
+                            if ok then
+                                pcall(DocSettings.updateLocation, file, dest, true)
+                                BookList.resetBookInfoCache(dest)
+                                if owner.invalidateBookMetadataCache then owner:invalidateBookMetadataCache(dest) end
+                                if owner.invalidateStatusCache then owner:invalidateStatusCache(dest) end
+                                if owner.updateMenuPath then owner:updateMenuPath(menu, nil, dest, true) end
+                            end
                         end
                         if ok then changed = changed + 1 else failed = failed + 1 end
                     end
@@ -480,7 +503,7 @@ function M.install(BV)
                     })
                 end
                 if move and changed > 0 then owner:leaveSelection(menu) end
-                refresh(menu)
+                refresh(menu, changed > 0)
             end,
         }
         UIManager:show(chooser)
@@ -516,6 +539,7 @@ function M.install(BV)
                     BookList.resetBookInfoCache(file)
                     if self.invalidateBookMetadataCache then self:invalidateBookMetadataCache(file) end
                     if self.invalidateStatusCache then self:invalidateStatusCache(file) end
+                    if menu and self.removeMenuPath then self:removeMenuPath(menu, file) end
                 end
                 pcall(ReadCollection.write, ReadCollection)
                 pcall(function() require("readhistory"):clearMissing() end)
@@ -627,6 +651,7 @@ function M.install(BV)
 
         local row = filemanagerutil.genStatusButtonsRow(doc_settings_or_file, function()
             if self.invalidateStatusCache then self:invalidateStatusCache(first) end
+            if self.invalidateBookMetadataCache then self:invalidateBookMetadataCache(first) end
             refresh(menu)
         end)
         local dialog
@@ -682,7 +707,8 @@ function M.install(BV)
             local saved = filemanagerutil.saveSummary(ds, summary)
             BookList.setBookInfoCacheProperty(file, "status", status)
             self._bookvault_status_cache = self._bookvault_status_cache or {}
-            self._bookvault_status_cache[file] = status
+            self._bookvault_status_cache[normalize(file)] = status
+            if self.invalidateBookMetadataCache then self:invalidateBookMetadataCache(file) end
             if saved then ds = saved end
         end
         -- Batch status changes invalidate the derived category index once,
