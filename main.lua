@@ -1,4 +1,3 @@
-require("bookvault_icons_bootstrap")
 local ButtonDialog = require("ui/widget/buttondialog")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
@@ -16,7 +15,6 @@ local ReaderUI = require("apps/reader/readerui")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local BookList = require("ui/widget/booklist")
-local DocSettings = require("docsettings")
 local DocumentRegistry = require("document/documentregistry")
 local ffiUtil = require("ffi/util")
 local lfs = require("libs/libkoreader-lfs")
@@ -24,15 +22,11 @@ local sha2 = require("ffi/sha2")
 local logger = require("logger")
 local _ = require("gettext")
 local Screen = require("device").screen
-local BookVaultHeader = require("bookvault_header")
 
 local BookVault = WidgetContainer:extend{
     name = "bookvault", fullname = _("BookVault"), is_doc_only = false,
     settings_file = DataStorage:getSettingsDir() .. "/bookvault.lua",
     settings = nil, unlocked = false,
-    _bookvault_scan_cache = nil,
-    _bookvault_status_cache = nil,
-    _bookvault_metadata_cache = nil,
 }
 
 local STATUS = {
@@ -65,49 +59,6 @@ local function copyItems(items)
     local result = {}
     for i, item in ipairs(items or {}) do result[i] = item end
     return result
-end
-
-function BookVault:invalidateLibraryCache()
-    self._bookvault_scan_cache = {}
-    self._bookvault_status_cache = {}
-end
-
-function BookVault:invalidateBookMetadataCache(file)
-    self._bookvault_metadata_cache = self._bookvault_metadata_cache or {}
-    if file then
-        self._bookvault_metadata_cache[normalize(file)] = nil
-    else
-        self._bookvault_metadata_cache = {}
-    end
-end
-
-function BookVault:getBookStatusCached(file)
-    if not file then return nil end
-    self._bookvault_status_cache = self._bookvault_status_cache or {}
-    local key = normalize(file)
-    if self._bookvault_status_cache[key] ~= nil then
-        return self._bookvault_status_cache[key]
-    end
-    local ok, status = pcall(BookList.getBookStatus, file)
-    if not ok then status = nil end
-    self._bookvault_status_cache[key] = status or false
-    return status
-end
-
-function BookVault:getStatusIndex(include_private)
-    self._bookvault_status_cache = self._bookvault_status_cache or {}
-    local root = self:getRoot() or ""
-    local key = root .. "|" .. tostring(include_private == true)
-    local cached = self._bookvault_status_cache[key]
-    if type(cached) == "table" and cached.__index then return cached end
-    local index = { __index = true, all = {}, reading = {}, abandoned = {}, complete = {}, new = {} }
-    for _, item in ipairs(self:scanBooks(include_private)) do
-        local status = self:getBookStatusCached(item.path)
-        index.all[#index.all + 1] = item
-        if index[status] then index[status][#index[status] + 1] = item end
-    end
-    self._bookvault_status_cache[key] = index
-    return index
 end
 
 local function safe(fn)
@@ -235,44 +186,99 @@ function BookVault:guard(path,callback)
     self:askPassword(function(ok) if ok then self.unlocked=true; safe(callback) end end)
 end
 
-function BookVault:scanBooks(include_private)
-    self._bookvault_scan_cache = self._bookvault_scan_cache or {}
-    local root = self:getRoot()
-    if not root then return {} end
-    local key = root .. "|" .. tostring(include_private == true)
-    local cached = self._bookvault_scan_cache[key]
-    if cached then return cached end
+function BookVault:invalidateLibraryCache()
+    self._bookvault_scan_cache = nil
+    self._bookvault_scan_cache_key = nil
+    self._bookvault_status_index = nil
+end
 
-    local result, visited, pending = {}, {}, {root}
-    local index = 1
-    while index <= #pending do
-        local dir = normalize(pending[index]); index = index + 1
+function BookVault:invalidateStatusCache(file)
+    self._bookvault_status_cache = self._bookvault_status_cache or {}
+    if file then
+        self._bookvault_status_cache[file] = nil
+    else
+        self._bookvault_status_cache = {}
+    end
+    self._bookvault_status_index = nil
+end
+
+function BookVault:getBookStatusCached(file)
+    if not file then return nil end
+    self._bookvault_status_cache = self._bookvault_status_cache or {}
+    local cached = self._bookvault_status_cache[file]
+    if cached ~= nil then
+        return cached ~= false and cached or nil
+    end
+    local ok, status = pcall(BookList.getBookStatus, file)
+    self._bookvault_status_cache[file] = ok and (status or false) or false
+    return status
+end
+
+function BookVault:invalidateBookMetadataCache(file)
+    if file then
+        if self._bookvault_metadata_cache then self._bookvault_metadata_cache[file] = nil end
+    else
+        self._bookvault_metadata_cache = {}
+    end
+end
+
+function BookVault:scanBooks(include_private)
+    local root=self:getRoot(); if not root then return {} end
+    local cache_key = root .. "|" .. (include_private and "1" or "0")
+    if self._bookvault_scan_cache_key == cache_key and type(self._bookvault_scan_cache) == "table" then
+        return copyItems(self._bookvault_scan_cache)
+    end
+    local result,visited,pending={}, {}, {root}; local index=1
+    while index<=#pending do
+        local dir=normalize(pending[index]); index=index+1
         if dir and not visited[dir] then
-            visited[dir] = true
-            local ok, iter, obj = pcall(lfs.dir, dir)
+            visited[dir]=true
+            local ok,iter,obj=pcall(lfs.dir,dir)
             if ok and iter and obj then
-                for name in iter, obj do
-                    if name ~= "." and name ~= ".." then
-                        local path = dir .. "/" .. name
-                        local attr = lfs.attributes(path)
-                        if attr and attr.mode == "directory" then
-                            if include_private or not self:isPrivate(path) then
-                                pending[#pending + 1] = path
-                            end
-                        elseif attr and attr.mode == "file" and (include_private or not self:isPrivate(path)) then
-                            local pok, provider = pcall(DocumentRegistry.hasProvider, DocumentRegistry, path)
-                            if pok and provider then
-                                result[#result + 1] = { path=path, filepath=path, text=name, attr=attr, is_file=true }
-                            end
+                for name in iter,obj do
+                    if name~="." and name~=".." then
+                        local path=dir.."/"..name; local attr=lfs.attributes(path)
+                        if attr and attr.mode=="directory" then
+                            if include_private or not self:isPrivate(path) then pending[#pending+1]=path end
+                        elseif attr and attr.mode=="file" and (include_private or not self:isPrivate(path)) then
+                            local pok,provider=pcall(DocumentRegistry.hasProvider,DocumentRegistry,path)
+                            if pok and provider then result[#result+1]={path=path,filepath=path,text=name,attr=attr,is_file=true} end
                         end
                     end
                 end
             end
         end
     end
-    table.sort(result, function(a,b) return (a.text or ""):lower() < (b.text or ""):lower() end)
-    self._bookvault_scan_cache[key] = result
-    return result
+    table.sort(result,function(a,b) return (a.text or ""):lower()<(b.text or ""):lower() end)
+    self._bookvault_scan_cache_key = cache_key
+    self._bookvault_scan_cache = result
+    return copyItems(result)
+end
+
+function BookVault:getStatusIndex(include_private)
+    self:loadSettings()
+    local root = self:getRoot()
+    local scan_key = root and (root .. "|" .. (include_private and "1" or "0")) or nil
+    local cache = self._bookvault_status_index
+    if cache and cache.scan_key == scan_key and cache.scan_ref == self._bookvault_scan_cache then
+        return cache.by_status
+    end
+
+    local by_status = { all = {}, reading = {}, abandoned = {}, complete = {}, new = {} }
+    local all_items = self:scanBooks(include_private)
+    by_status.all = all_items
+    for _, item in ipairs(all_items) do
+        local status = self:getBookStatusCached(item.path) or "new"
+        if not by_status[status] then status = "new" end
+        by_status[status][#by_status[status] + 1] = item
+    end
+
+    self._bookvault_status_index = {
+        scan_key = scan_key,
+        scan_ref = self._bookvault_scan_cache,
+        by_status = by_status,
+    }
+    return by_status
 end
 
 function BookVault:getStatusLabel(status)
@@ -372,26 +378,17 @@ end
 function BookVault:getBookMetadata(item)
     if not item or not item.path then return {} end
     self._bookvault_metadata_cache = self._bookvault_metadata_cache or {}
-    local path = normalize(item.path)
-    local attr = lfs.attributes(path)
-    local custom = DocSettings.findCustomMetadataFile(path)
-    local custom_attr = custom and lfs.attributes(custom)
-    local cover = DocSettings.findCustomCoverFile(path)
-    local cover_attr = cover and lfs.attributes(cover)
-    local fingerprint = table.concat({
-        attr and attr.modification or 0, attr and attr.size or 0,
-        custom_attr and custom_attr.modification or 0, custom_attr and custom_attr.size or 0,
-        cover_attr and cover_attr.modification or 0, cover_attr and cover_attr.size or 0,
-    }, ":")
-    local cached = self._bookvault_metadata_cache[path]
-    if cached and cached.fingerprint == fingerprint then
-        return cached.info
+    if self._bookvault_metadata_cache[item.path] ~= nil then
+        return self._bookvault_metadata_cache[item.path]
     end
-    local bim = self:loadBookInfoManager()
+    local bim=self:loadBookInfoManager()
     if not bim then return {} end
-    local ok_info, info = pcall(bim.getBookInfo, bim, path, false)
-    if not ok_info or type(info) ~= "table" then return {} end
-    self._bookvault_metadata_cache[path] = { fingerprint=fingerprint, info=info }
+    local ok_info,info=pcall(bim.getBookInfo,bim,item.path,false)
+    if not ok_info or type(info)~="table" then
+        self._bookvault_metadata_cache[item.path] = {}
+        return self._bookvault_metadata_cache[item.path]
+    end
+    self._bookvault_metadata_cache[item.path] = info
     return info
 end
 
@@ -591,6 +588,77 @@ function BookVault:showAppearanceSettings(menu)
     rebuild()
 end
 
+function BookVault:showBookVaultSettings(menu)
+    local dialog
+
+    local function close()
+        if dialog then UIManager:close(dialog) end
+    end
+
+    local function showSubmenu(title, buttons)
+        local sub
+        local rows = buttons or {}
+        rows[#rows + 1] = {{text=_("Voltar"), callback=function() if sub then UIManager:close(sub) end end}}
+        sub = ButtonDialog:new{title=title, title_align="center", buttons=rows}
+        UIManager:show(sub)
+    end
+
+    dialog = ButtonDialog:new{
+        title=_("BookVault"),
+        title_align="center",
+        buttons={
+            {{text=_("Abrir biblioteca"), callback=function()
+                close()
+                self:showStatusChooser()
+            end}},
+            {{text_func=function()
+                return self.unlocked and "◉ ".._("Ocultar conteúdo") or "◉ ".._("Revelar conteúdo")
+            end, callback=function()
+                close()
+                self:togglePrivate()
+            end}},
+            {{text=_("Biblioteca"), callback=function()
+                close()
+                showSubmenu(_("Biblioteca"), {
+                    {{text=_("Configurar pasta da biblioteca"), callback=function()
+                        self:chooseRoot()
+                    end}},
+                    {{text=_("Categorias exibidas"), callback=function()
+                        self:showStatusVisibilityChooser()
+                    end}},
+                    {{text=_("Coleções"), callback=function()
+                        self:showCollectionChooser()
+                    end}},
+                    {{text=_("Coleções exibidas"), callback=function()
+                        self:showCollectionVisibilityChooser()
+                    end}},
+                })
+            }},
+            {{text=_("Aparência"), callback=function()
+                close()
+                self:showAppearanceSettings(menu)
+            end}},
+            {{text=_("Segurança"), callback=function()
+                close()
+                showSubmenu(_("Segurança"), {
+                    {{text=_("Criar/alterar senha"), callback=function() self:setPassword() end}},
+                    {{text=_("Proteger uma pasta"), callback=function() self:chooseManagedPath(false) end}},
+                    {{text=_("Gerenciar pastas protegidas"), callback=function() self:listManagedPaths(false) end}},
+                })
+            }},
+            {{text=_("Privacidade"), callback=function()
+                close()
+                showSubmenu(_("Privacidade"), {
+                    {{text=_("Tornar uma pasta privada"), callback=function() self:chooseManagedPath(true) end}},
+                    {{text=_("Gerenciar conteúdo privado"), callback=function() self:listManagedPaths(true) end}},
+                })
+            }},
+            {{text=_("Cancelar"), callback=close}},
+        },
+    }
+    UIManager:show(dialog)
+end
+
 function BookVault:prepareVisualMenu(menu,source_items)
     menu._bookvault_source_items=source_items
     menu.sortBookVaultItems=function(instance,mode) self:sortBookVaultItems(instance,mode) end
@@ -619,12 +687,52 @@ function BookVault:decorateTitleBar(menu, appearance, search_cb, sort_cb, settin
 end
 
 function BookVault:changeCategory(menu, status)
-    if menu then UIManager:close(menu) end
-    self:showLibrary(status, self.privacyIncludePrivate and self:privacyIncludePrivate() or false)
+    if not menu or not status then return end
+
+    -- Reuse the already scanned library and the existing mosaic menu.
+    -- Switching a status must not close/recreate the whole BookVault screen.
+    local include_private = self.privacyIncludePrivate and self:privacyIncludePrivate() or false
+    local by_status = self:getStatusIndex(include_private)
+    local filtered = by_status[status] or by_status.all or {}
+
+    local view_key = "status:" .. status
+    menu._bookvault_view_key = view_key
+    menu._bookvault_source_items = self:applyCustomOrder(filtered, view_key)
+    menu._bookvault_filtered_items = nil
+    menu.item_table = copyItems(menu._bookvault_source_items)
+    menu.page = 1
+
+    self:loadSettings()
+    self.settings.data.last_status = status
+
+    local header = menu._bookvault_header
+    if header and header.setActiveStatus then
+        header:setActiveStatus(status)
+    end
+
+    -- Avoid forcing a cover re-read when only the item table changed.
+    menu.no_refresh_covers = true
+    pcall(menu.updateItems, menu, 1, true)
+    menu.no_refresh_covers = nil
 end
 
 function BookVault:makeBookMenu(name,title,items,view_key)
     local menu
+
+    -- Visual dependencies are lazy-loaded so a problem in a UI helper can
+    -- never make the BookVault plugin disappear from KOReader/Simple UI.
+    local ok_bootstrap = pcall(require, "bookvault_icons_bootstrap")
+    if not ok_bootstrap then
+        logger.warn("BookVault: icon bootstrap unavailable")
+    end
+    local ok_header, BookVaultHeader = pcall(require, "bookvault_header")
+    if not ok_header or not BookVaultHeader then
+        UIManager:show(InfoMessage:new{
+            text = _("BookVault não conseguiu carregar a interface visual. Verifique a instalação do plugin."),
+        })
+        return nil
+    end
+
     self:ensureBookVaultIcons()
     self:loadSettings()
     local appearance=self.settings.data.appearance
@@ -637,7 +745,7 @@ function BookVault:makeBookMenu(name,title,items,view_key)
 
     local function search_cb() self:showSearchDialog(menu) end
     local function sort_cb() self:showSortDialog(menu) end
-    local function settings_cb() self:showBookVaultOptions() end
+    local function settings_cb() self:showBookVaultSettings(menu) end
     local function status_cb(status) self:changeCategory(menu,status) end
 
     local header = BookVaultHeader:new{
@@ -726,17 +834,21 @@ function BookVault:showCollectionVisibilityChooser()
 end
 function BookVault:showLibrary(status,include_private)
     safe(function()
-        local index = self:getStatusIndex(include_private)
-        local items = index[status] or {}
-        self:loadSettings()
-        self.settings.data.last_status = status
-        self:saveSettings()
-        local menu = self:makeBookMenu("bookvault_library_"..status, _("BookVault"), items, "status:"..status)
+        local by_status = self:getStatusIndex(include_private)
+        local items = by_status[status] or by_status.all or {}
+        self.settings.data.last_status=status
+        local menu=self:makeBookMenu("bookvault_library_"..status,_("BookVault"),items,"status:"..status)
+        if not menu then return end
         UIManager:show(menu)
-        menu:updateItems()
+        -- CoverMenu/MosaicMenu performs its own initial layout. Calling it twice
+        -- here caused unnecessary cover work on first open.
+        if menu._bookvault_visual then
+            pcall(menu.updateItems, menu, 1, true)
+        else
+            pcall(menu.updateItems, menu)
+        end
     end)
 end
-
 function BookVault:showStatusChooser()
     self:loadSettings()
     local first = self.settings.data.last_status or "all"
@@ -763,10 +875,10 @@ function BookVault:showStatusVisibilityChooser()
     rebuild()
 end
 function BookVault:chooseRoot()
-    self:loadSettings(); UIManager:show(PathChooser:new{path=self:getRoot() or G_reader_settings:readSetting("home_dir"),select_directory=true,select_file=false,onConfirm=function(path) if path then self.settings.data.root=normalize(path); self:saveSettings(); self:invalidateLibraryCache(); UIManager:show(InfoMessage:new{text=_("Pasta da biblioteca salva.")}) end end})
+    self:loadSettings(); UIManager:show(PathChooser:new{path=self:getRoot() or G_reader_settings:readSetting("home_dir"),select_directory=true,select_file=false,onConfirm=function(path) if path then self.settings.data.root=normalize(path); self:invalidateLibraryCache(); self:saveSettings(); UIManager:show(InfoMessage:new{text=_("Pasta da biblioteca salva.")}) end end})
 end
 function BookVault:chooseManagedPath(private)
-    self:loadSettings(); UIManager:show(PathChooser:new{path=self:getRoot() or G_reader_settings:readSetting("home_dir"),select_directory=true,select_file=false,onConfirm=function(path) if not path then return end; local list=private and self.settings.data.private_paths or self.settings.data.protected_paths; addUnique(list,path); self:saveSettings(); self:invalidateLibraryCache(); UIManager:show(InfoMessage:new{text=private and _("Pasta tornada privada.") or _("Pasta protegida.")}) end})
+    self:loadSettings(); UIManager:show(PathChooser:new{path=self:getRoot() or G_reader_settings:readSetting("home_dir"),select_directory=true,select_file=false,onConfirm=function(path) if not path then return end; local list=private and self.settings.data.private_paths or self.settings.data.protected_paths; addUnique(list,path); self:invalidateLibraryCache(); self:saveSettings(); UIManager:show(InfoMessage:new{text=private and _("Pasta tornada privada.") or _("Pasta protegida.")}) end})
 end
 function BookVault:listManagedPaths(private)
     self:loadSettings(); local list=private and self.settings.data.private_paths or self.settings.data.protected_paths
@@ -782,69 +894,41 @@ function BookVault:togglePrivate()
     if self.unlocked then self.unlocked=false; self:showStatusChooser(); return end
     if not self:hasPassword() then self:setPassword(function() self.unlocked=true; self:showStatusChooser() end) else self:askPassword(function(ok) if ok then self.unlocked=true; self:showStatusChooser() end end,_("Revelar conteúdo")) end
 end
-function BookVault:getOptionsSubmenu()
-    return {
-        {text=_("Abrir biblioteca"), callback=function() self:showStatusChooser() end},
-        {text_func=function() return self.unlocked and "◉ ".._("Ocultar conteúdo") or "◉ ".._("Revelar conteúdo") end, callback=function() self:togglePrivate() end},
-        {text=_("Biblioteca"), separator=true, sub_item_table={
-            {text=_("Configurar pasta da biblioteca"), callback=function() self:chooseRoot() end},
-            {text=_("Categorias exibidas"), callback=function() self:showStatusVisibilityChooser() end},
-            {text=_("Coleções"), callback=function() self:showCollectionChooser() end},
-            {text=_("Coleções exibidas"), callback=function() self:showCollectionVisibilityChooser() end},
-        }},
-        {text=_("Aparência"), separator=true, sub_item_table={
-            {text=_("Personalizar aparência"), callback=function() self:showAppearanceSettings(self._last_menu) end},
-        }},
-        {text=_("Segurança"), separator=true, sub_item_table={
-            {text=_("Criar/alterar senha"), callback=function() self:setPassword() end},
-            {text=_("Proteger uma pasta"), callback=function() self:chooseManagedPath(false) end},
-            {text=_("Gerenciar pastas protegidas"), callback=function() self:listManagedPaths(false) end},
-        }},
-        {text=_("Privacidade"), separator=true, sub_item_table={
-            {text=_("Tornar uma pasta privada"), callback=function() self:chooseManagedPath(true) end},
-            {text=_("Gerenciar conteúdo privado"), callback=function() self:listManagedPaths(true) end},
-        }},
-    }
-end
-
-function BookVault:showBookVaultOptions()
-    -- Reuse the same option tree exposed in KOReader's main menu, without creating
-    -- a second settings system. The gear is simply another entry point to it.
-    local options = self:getOptionsSubmenu()
-    local dialog
-    local buttons = {}
-    for _, item in ipairs(options) do
-        buttons[#buttons + 1] = {{text=item.text_func and item.text_func() or item.text, callback=function()
-            UIManager:close(dialog)
-            if item.sub_item_table then
-                local sub
-                local sub_buttons = {}
-                for _, child in ipairs(item.sub_item_table) do
-                    sub_buttons[#sub_buttons + 1] = {{text=child.text_func and child.text_func() or child.text, callback=function()
-                        UIManager:close(sub)
-                        if child.callback then child.callback() end
-                    end}}
-                end
-                sub_buttons[#sub_buttons + 1] = {{text=_("Voltar"), callback=function() UIManager:close(sub); self:showBookVaultOptions() end}}
-                sub = ButtonDialog:new{title=item.text, title_align="center", buttons=sub_buttons}
-                UIManager:show(sub)
-            elseif item.callback then
-                item.callback()
-            end
-        end}}
-    end
-    buttons[#buttons + 1] = {{text=_("Fechar"), callback=function() UIManager:close(dialog) end}}
-    dialog = ButtonDialog:new{title=_("BookVault"), title_align="center", buttons=buttons}
-    UIManager:show(dialog)
-end
-
 function BookVault:addToMainMenu(menu_items)
-    menu_items.bookvault={text=_("BookVault"),sorting_hint="more_tools",sub_item_table=self:getOptionsSubmenu()}
+    menu_items.bookvault={text=_("BookVault"),sorting_hint="more_tools",sub_item_table={
+        {text=_("Abrir biblioteca"),callback=function() self:showStatusChooser() end},
+        {text_func=function() return self.unlocked and "◉ ".._("Ocultar conteúdo") or "◉ ".._("Revelar conteúdo") end,callback=function() self:togglePrivate() end},
+        {text=_("Biblioteca"),separator=true,sub_item_table={
+            {text=_("Configurar pasta da biblioteca"),callback=function() self:chooseRoot() end},
+            {text=_("Categorias exibidas"),callback=function() self:showStatusVisibilityChooser() end},
+            {text=_("Coleções"),callback=function() self:showCollectionChooser() end},
+            {text=_("Coleções exibidas"),callback=function() self:showCollectionVisibilityChooser() end},
+        }},
+        {text=_("Aparência"),separator=true,sub_item_table={
+            {text=_("Personalizar aparência"),callback=function() self:showAppearanceSettings(self._last_menu) end},
+        }},
+        {text=_("Segurança"),separator=true,sub_item_table={
+            {text=_("Criar/alterar senha"),callback=function() self:setPassword() end},
+            {text=_("Proteger uma pasta"),callback=function() self:chooseManagedPath(false) end},
+            {text=_("Gerenciar pastas protegidas"),callback=function() self:listManagedPaths(false) end},
+        }},
+        {text=_("Privacidade"),separator=true,sub_item_table={
+            {text=_("Tornar uma pasta privada"),callback=function() self:chooseManagedPath(true) end},
+            {text=_("Gerenciar conteúdo privado"),callback=function() self:listManagedPaths(true) end},
+        }},
+    }}
 end
 function BookVault:show() self:showStatusChooser() end
 function BookVault:onSuspend() self.unlocked=false end
 function BookVault:onResume() self.unlocked=false end
-function BookVault:init() self:loadSettings(); self.ui.menu:registerToMainMenu(self) end
+function BookVault:init()
+    -- Keep registration alive even if a non-essential UI component fails on
+    -- a particular KOReader build.
+    safe(function()
+        self:loadSettings()
+        self.ui.menu:registerToMainMenu(self)
+    end)
+end
 
 -- Install BookVault actions explicitly on the BookVault class.
 -- This is intentionally done after the class is fully defined and never by
