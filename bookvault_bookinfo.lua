@@ -47,7 +47,7 @@ local function editMetadata(file, book_props, key, label, input_type, allow_newl
                     local value = dialog:getInputValue()
                     if value == nil then return end
                     UIManager:close(dialog)
-                    local custom_file = DocSettings.findCustomMetadataFile(file)
+                    local custom_file = DocSettings:findCustomMetadataFile(file)
                     local settings
                     if custom_file then
                         settings = DocSettings.openSettingsFile(custom_file)
@@ -116,7 +116,7 @@ function M.show(ui, file, book_props)
         last_page = doc_settings:readSetting("last_page")
     end
 
-    local custom_metadata_file = DocSettings.findCustomMetadataFile(file)
+    local custom_metadata_file = DocSettings:findCustomMetadataFile(file)
     local custom_props = {}
     if custom_metadata_file then
         local settings = DocSettings.openSettingsFile(custom_metadata_file)
