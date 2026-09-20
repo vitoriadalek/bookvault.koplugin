@@ -166,19 +166,33 @@ function M.install(BV)
         return true
     end
 
+    local function scheduleSimpleUIRetry(delay, callback)
+        -- Simple UI is optional. Never let its availability or scheduler
+        -- break the core BookVault plugin load/registration.
+        if not UIManager or type(UIManager.scheduleIn) ~= "function" then return false end
+        local ok = pcall(UIManager.scheduleIn, UIManager, delay, callback)
+        return ok
+    end
+
     local function registerSimpleUIWithRetry()
-        if BV:registerSimpleUIAction() then return end
+        local ok, registered = pcall(BV.registerSimpleUIAction, BV)
+        if ok and registered then return end
         if BV._bookvault_sui_retry then return end
         BV._bookvault_sui_retry = true
         local attempts = 0
         local function retry()
             BV._bookvault_sui_retry = false
             attempts = attempts + 1
-            if BV:registerSimpleUIAction() or attempts >= 5 then return end
+            local retry_ok, done = pcall(BV.registerSimpleUIAction, BV)
+            if (retry_ok and done) or attempts >= 5 then return end
             BV._bookvault_sui_retry = true
-            UIManager:scheduleIn(2, retry)
+            if not scheduleSimpleUIRetry(2, retry) then
+                BV._bookvault_sui_retry = false
+            end
         end
-        UIManager:scheduleIn(0, retry)
+        if not scheduleSimpleUIRetry(0, retry) then
+            BV._bookvault_sui_retry = false
+        end
     end
 
     registerSimpleUIWithRetry()
