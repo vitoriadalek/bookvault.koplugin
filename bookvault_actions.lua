@@ -571,7 +571,6 @@ function M.install(BV)
         if menu._bookvault_header and menu._bookvault_header.setSelectionCount then
             menu._bookvault_header:setSelectionCount(count(menu._bookvault_selected))
         end
-        refresh(menu)
     end
 
     function BV:toggleSelection(menu, item)
@@ -590,7 +589,6 @@ function M.install(BV)
         if menu._bookvault_header and menu._bookvault_header.setSelectionCount then
             menu._bookvault_header:setSelectionCount(n)
         end
-        refresh(menu)
     end
 
     function BV:leaveSelection(menu)
@@ -599,7 +597,6 @@ function M.install(BV)
         if menu._bookvault_header and menu._bookvault_header.setSelectionCount then
             menu._bookvault_header:setSelectionCount(0)
         end
-        refresh(menu)
     end
 
     function BV:showSelectionMore(menu)
