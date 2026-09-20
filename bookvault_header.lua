@@ -193,59 +193,91 @@ end
 function Header:rebuildTop()
     local top_h = Screen:scaleBySize(52)
     local gap = Screen:scaleBySize(2)
-    local top = OverlapGroup:new{
-        dimen=Geom:new{x=0,y=0,w=self.width,h=top_h},
-    }
 
-    local left_logo = IconWidget:new{
-        icon="bookvault-cat",
-        width=Screen:scaleBySize(19),
-        height=Screen:scaleBySize(19),
-        dim=true,
-    }
-    if not self.show_cat then left_logo:hide() end
-    local identity = VerticalGroup:new{align="left",self.title_widget,self.subtitle_widget}
-    top[1]=HorizontalGroup:new{
-        left_logo,
-        HorizontalSpan:new{width=Screen:scaleBySize(7)},
-        identity,
-    }
-
-    local right
-    if self.selection_mode then
-        right = HorizontalGroup:new{
-            self.selection_collections,
-            HorizontalSpan:new{width=gap},
-            self.selection_move,
-            HorizontalSpan:new{width=gap},
-            self.selection_copy,
-            HorizontalSpan:new{width=gap},
-            self.selection_delete,
-            HorizontalSpan:new{width=gap},
-            self.selection_more,
-            HorizontalSpan:new{width=gap},
-            self.selection_exit,
+    if not self.top_widget then
+        local top = OverlapGroup:new{
+            dimen=Geom:new{x=0,y=0,w=self.width,h=top_h},
         }
+
+        local function makeLeft()
+            local left_logo = IconWidget:new{
+                icon="bookvault-cat",
+                width=Screen:scaleBySize(19),
+                height=Screen:scaleBySize(19),
+                dim=true,
+            }
+            if not self.show_cat then left_logo:hide() end
+            local identity = VerticalGroup:new{align="left",self.title_widget,self.subtitle_widget}
+            return HorizontalGroup:new{
+                left_logo,
+                HorizontalSpan:new{width=Screen:scaleBySize(7)},
+                identity,
+            }
+        end
+
+        local normal_right = RightContainer:new{
+            dimen=Geom:new{x=0,y=0,w=self.width,h=top_h},
+            HorizontalGroup:new{
+                self.search_button,
+                HorizontalSpan:new{width=gap},
+                self.moon_widget,
+                HorizontalSpan:new{width=gap},
+                self.sort_button,
+                HorizontalSpan:new{width=gap},
+                self.settings_button,
+                HorizontalSpan:new{width=gap},
+                self.close_button,
+            },
+        }
+        local selection_right = RightContainer:new{
+            dimen=Geom:new{x=0,y=0,w=self.width,h=top_h},
+            HorizontalGroup:new{
+                self.selection_collections,
+                HorizontalSpan:new{width=gap},
+                self.selection_move,
+                HorizontalSpan:new{width=gap},
+                self.selection_copy,
+                HorizontalSpan:new{width=gap},
+                self.selection_delete,
+                HorizontalSpan:new{width=gap},
+                self.selection_more,
+                HorizontalSpan:new{width=gap},
+                self.selection_exit,
+            },
+        }
+
+        self._top_normal_right = normal_right
+        self._top_selection_right = selection_right
+        self._top_normal_left = makeLeft()
+        self._top_selection_left = makeLeft()
+
+        self._top_normal = OverlapGroup:new{
+            dimen=Geom:new{x=0,y=0,w=self.width,h=top_h},
+            self._top_normal_left,
+            self._top_normal_right,
+        }
+        self._top_selection = OverlapGroup:new{
+            dimen=Geom:new{x=0,y=0,w=self.width,h=top_h},
+            self._top_selection_left,
+            self._top_selection_right,
+        }
+
+        self._top_normal:show()
+        self._top_selection:hide()
+        top[1] = self.selection_mode and self._top_selection or self._top_normal
+        self.top_widget = top
     else
-        right = HorizontalGroup:new{
-            self.search_button,
-            HorizontalSpan:new{width=gap},
-            self.moon_widget,
-            HorizontalSpan:new{width=gap},
-            self.sort_button,
-            HorizontalSpan:new{width=gap},
-            self.settings_button,
-            HorizontalSpan:new{width=gap},
-            self.close_button,
-        }
+        local active = self.selection_mode and self._top_selection or self._top_normal
+        if self.selection_mode then
+            self._top_normal:hide()
+            self._top_selection:show()
+        else
+            self._top_selection:hide()
+            self._top_normal:show()
+        end
+        self.top_widget[1] = active
     end
-
-    top[2]=RightContainer:new{
-        dimen=Geom:new{x=0,y=0,w=self.width,h=top_h},
-        right,
-    }
-    self.top_widget=top
-    if self[1] then self[1][1]=top end
+    if self[1] then self[1][1]=self.top_widget end
 end
 
 function Header:setTitle(title)
