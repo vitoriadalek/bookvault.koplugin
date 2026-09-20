@@ -814,8 +814,14 @@ function M.install(BV)
     end
 
     function BV:searchBookCovers(file)
-        -- Explicit, user-triggered cover search. No background scans.
-        -- Uses structured book APIs instead of scraping Google Images HTML.
+        -- Explicit, user-triggered cover search.
+        -- Progressive order:
+        --   1) ISBN
+        --   2) title + author
+        --   3) title + author + language
+        --   4) title only
+        -- Stop once six unique usable candidates have been collected.
+        -- Uses structured APIs only; never scrapes image-search HTML.
         local http = require("socket.http")
         local ltn12 = require("ltn12")
         local socketutil = require("socketutil")
@@ -885,9 +891,28 @@ function M.install(BV)
         if type(language) == "table" then language = language[1] end
         language = type(language) == "string" and language:lower() or nil
 
+        local function languageCodes(value)
+            local v = tostring(value or ""):lower():match("^([a-z][a-z])")
+            if v == "pt" then return "pt", "por" end
+            if v == "en" then return "en", "eng" end
+            if v == "es" then return "es", "spa" end
+            if v == "fr" then return "fr", "fre" end
+            if v == "de" then return "de", "ger" end
+            if v == "it" then return "it", "ita" end
+            if v == "ja" then return "ja", "jpn" end
+            if v == "ko" then return "ko", "kor" end
+            if v == "zh" then return "zh", "chi" end
+            if v == "ru" then return "ru", "rus" end
+            if v then return v, v end
+            return nil, nil
+        end
+        local google_language, openlibrary_language = languageCodes(language)
+
+        -- Preserve Unicode letters. Lua's %w is byte-oriented on many KOReader builds,
+        -- so the old pattern could destroy accented Portuguese names/titles.
         local function normalizeText(value)
             return tostring(value or ""):lower()
-                :gsub("[^%w%s]", " ")
+                :gsub("[%p%c]+", " ")
                 :gsub("%s+", " ")
                 :gsub("^%s+", "")
                 :gsub("%s+$", "")
@@ -904,36 +929,41 @@ function M.install(BV)
             local candidate_isbn = candidate.isbn and candidate.isbn:gsub("[^%dXx]", "") or nil
 
             if wanted_isbn and candidate_isbn and wanted_isbn == candidate_isbn then
-                score = score + 120
+                score = score + 220
             end
             if candidate_title ~= "" and candidate_title == wanted_title then
-                score = score + 80
-            elseif candidate_title ~= "" and wanted_title ~= "" then
-                if candidate_title:find(wanted_title, 1, true) or wanted_title:find(candidate_title, 1, true) then
-                    score = score + 45
-                end
+                score = score + 100
+            elseif candidate_title ~= "" and wanted_title ~= ""
+                and (candidate_title:find(wanted_title, 1, true) or wanted_title:find(candidate_title, 1, true)) then
+                score = score + 50
             end
             if wanted_author ~= "" and candidate_authors ~= "" then
-                if candidate_authors:find(wanted_author, 1, true) or wanted_author:find(candidate_authors, 1, true) then
-                    score = score + 45
+                if candidate_authors == wanted_author then
+                    score = score + 80
+                elseif candidate_authors:find(wanted_author, 1, true) or wanted_author:find(candidate_authors, 1, true) then
+                    score = score + 40
                 end
             end
-            if language and candidate.language and candidate.language:lower():find(language, 1, true) then
-                score = score + 10
+            if language and candidate.language then
+                local candidate_language = tostring(candidate.language):lower()
+                if candidate_language == language
+                    or (google_language and candidate_language:sub(1, 2) == google_language)
+                    or (openlibrary_language and candidate_language:find(openlibrary_language, 1, true)) then
+                    score = score + 30
+                end
             end
-            if candidate.source == "openlibrary" then score = score + 5 end
             return score
         end
 
         local function requestJSON(endpoint)
             local sink = {}
             socketutil:set_timeout(5, 12)
-            local ok, success, code, headers, status = pcall(function()
+            local ok, success, code = pcall(function()
                 return request{
                     url = endpoint,
                     method = "GET",
                     headers = {
-                        ["User-Agent"] = "BookVault/3.4 (KOReader)",
+                        ["User-Agent"] = "BookVault/3.4.3 (KOReader)",
                         ["Accept"] = "application/json",
                         ["Accept-Encoding"] = "identity",
                     },
@@ -941,9 +971,7 @@ function M.install(BV)
                 }
             end)
             socketutil:reset_timeout()
-            if not ok or success ~= 1 or tonumber(code) ~= 200 then
-                return nil
-            end
+            if not ok or success ~= 1 or tonumber(code) ~= 200 then return nil end
             local body = table.concat(sink)
             if body == "" or #body > 700 * 1024 then return nil end
             local decoded_ok, data = pcall(JSON.decode, body)
@@ -951,62 +979,100 @@ function M.install(BV)
             return nil
         end
 
+        local function normalizeUrl(url)
+            return tostring(url or ""):lower()
+                :gsub("^https?://", "")
+                :gsub("[#?].*$", "")
+                :gsub("/+$", "")
+        end
+
         local candidates, seen = {}, {}
-        local function addCandidate(candidate)
-            if type(candidate) ~= "table" or type(candidate.preview) ~= "string" or candidate.preview == "" then
+        local function candidateKey(candidate)
+            local cid = candidate.isbn and candidate.isbn:gsub("[^%dXx]", "") or ""
+            if cid ~= "" then return "isbn:" .. cid end
+            local original = normalizeUrl(candidate.original)
+            if original ~= "" then return "url:" .. original end
+            return "fallback:" .. normalizeText(candidate.title) .. "|" .. normalizeText(candidate.authors)
+        end
+
+        local function addCandidate(candidate, stage)
+            if type(candidate) ~= "table" or type(candidate.preview) ~= "string" or candidate.preview == "" then return end
+            candidate.original = candidate.original or candidate.preview
+            candidate.stage = stage
+            candidate.score = scoreCandidate(candidate)
+            candidate.key = candidateKey(candidate)
+
+            local existing = seen[candidate.key]
+            if existing then
+                if candidate.score > existing.score
+                    or (candidate.score == existing.score and (candidate.quality or 0) > (existing.quality or 0)) then
+                    existing.source = candidate.source
+                    existing.title = candidate.title
+                    existing.authors = candidate.authors
+                    existing.language = candidate.language
+                    existing.isbn = candidate.isbn
+                    existing.preview = candidate.preview
+                    existing.original = candidate.original
+                    existing.score = candidate.score
+                    existing.stage = math.min(existing.stage or stage, stage)
+                    existing.quality = math.max(existing.quality or 0, candidate.quality or 0)
+                end
                 return
             end
-            candidate.original = candidate.original or candidate.preview
-            candidate.key = candidate.key or candidate.preview
-            if seen[candidate.key] then return end
-            candidate.score = scoreCandidate(candidate)
-            seen[candidate.key] = true
+
+            seen[candidate.key] = candidate
             candidates[#candidates + 1] = candidate
         end
 
-        local ol_query
-        if isbn then
-            ol_query = "isbn:" .. isbn
-        else
-            ol_query = title
-            if authors ~= "" then ol_query = ol_query .. " " .. authors end
+        local function countStrong()
+            local n = 0
+            for _, candidate in ipairs(candidates) do
+                if candidate.score and candidate.score > 0 then n = n + 1 end
+            end
+            return n
         end
-        local ol_url = "https://openlibrary.org/search.json?q=" .. urlmod.escape(ol_query)
-            .. "&limit=10&fields=key,title,author_name,cover_i,isbn,language,edition_key"
 
-        local ol_data = requestJSON(ol_url)
-        if ol_data and type(ol_data.docs) == "table" then
-            for _, doc in ipairs(ol_data.docs) do
+        local function sortCandidates()
+            table.sort(candidates, function(a, b)
+                if a.score == b.score then
+                    if a.stage == b.stage then
+                        return (a.quality or 0) > (b.quality or 0)
+                    end
+                    return a.stage < b.stage
+                end
+                return a.score > b.score
+            end)
+        end
+
+        local function addOpenLibraryResults(query, stage)
+            local ol_url = "https://openlibrary.org/search.json?q=" .. urlmod.escape(query)
+                .. "&limit=10&fields=key,title,author_name,cover_i,isbn,language,edition_key"
+            local data = requestJSON(ol_url)
+            if not data or type(data.docs) ~= "table" then return end
+            for _, doc in ipairs(data.docs) do
                 if type(doc) == "table" and doc.cover_i then
-                    local doc_isbn = firstIdentifier(doc.isbn)
                     local cover_id = tostring(doc.cover_i)
                     addCandidate{
                         source = "openlibrary",
                         title = doc.title,
                         authors = type(doc.author_name) == "table" and table.concat(doc.author_name, " ") or doc.author_name,
                         language = type(doc.language) == "table" and doc.language[1] or doc.language,
-                        isbn = doc_isbn,
+                        isbn = firstIdentifier(doc.isbn),
                         preview = "https://covers.openlibrary.org/b/id/" .. cover_id .. "-M.jpg?default=false",
                         original = "https://covers.openlibrary.org/b/id/" .. cover_id .. "-L.jpg?default=false",
-                        key = "ol:" .. cover_id,
-                    }
+                        quality = 3,
+                    }, stage
                 end
             end
         end
 
-        local gb_query
-        if isbn then
-            gb_query = "isbn:" .. isbn
-        else
-            gb_query = "intitle:" .. title
-            if authors ~= "" then gb_query = gb_query .. " inauthor:" .. authors end
-        end
-        local gb_url = "https://www.googleapis.com/books/v1/volumes?q=" .. urlmod.escape(gb_query)
-            .. "&maxResults=10&printType=books"
-
-        local gb_data = requestJSON(gb_url)
-        if gb_data and type(gb_data.items) == "table" then
-            for _, item in ipairs(gb_data.items) do
+        local function addGoogleResults(query, stage)
+            local q = "https://www.googleapis.com/books/v1/volumes?q=" .. urlmod.escape(query)
+                .. "&maxResults=10&printType=books"
+            if google_language then q = q .. "&langRestrict=" .. urlmod.escape(google_language) end
+            local data = requestJSON(q)
+            if not data or type(data.items) ~= "table" then return end
+            for _, item in ipairs(data.items) do
                 local info = type(item) == "table" and item.volumeInfo or nil
                 local images = info and info.imageLinks or nil
                 if type(info) == "table" and type(images) == "table" then
@@ -1015,10 +1081,9 @@ function M.install(BV)
                     if preview and original then
                         local identifiers = {}
                         for _, identifier in ipairs(info.industryIdentifiers or {}) do
-                            if type(identifier) == "table" and identifier.identifier then
-                                identifiers[#identifiers + 1] = identifier.identifier
-                            end
+                            if type(identifier) == "table" and identifier.identifier then identifiers[#identifiers + 1] = identifier.identifier end
                         end
+                        local quality = images.extraLarge and 5 or (images.large and 4 or (images.medium and 3 or 2))
                         addCandidate{
                             source = "googlebooks",
                             title = info.title,
@@ -1027,19 +1092,52 @@ function M.install(BV)
                             isbn = firstIdentifier(identifiers),
                             preview = preview,
                             original = original,
+                            quality = quality,
                             key = "gb:" .. tostring(item.id or preview),
-                        }
+                        }, stage
                     end
                 end
             end
         end
 
-        table.sort(candidates, function(a, b)
-            if a.score == b.score then
-                return (a.source or "") < (b.source or "")
+        local function runStage(stage, ol_query, gb_query)
+            addOpenLibraryResults(ol_query, stage)
+            addGoogleResults(gb_query, stage)
+            sortCandidates()
+            return #candidates >= 6 and countStrong() >= 6
+        end
+
+        local stage = 0
+        if wanted_isbn then
+            stage = 1
+            if runStage(stage, "isbn:" .. wanted_isbn, "isbn:" .. wanted_isbn) then stage = 4 else stage = 1 end
+        end
+
+        if #candidates < 6 then
+            stage = 2
+            local ol_query = "title:" .. title
+            local gb_query = "intitle:" .. title
+            if authors ~= "" then
+                ol_query = ol_query .. " author:" .. authors
+                gb_query = gb_query .. " inauthor:" .. authors
             end
-            return a.score > b.score
-        end)
+            runStage(stage, ol_query, gb_query)
+        end
+
+        if #candidates < 6 and language and authors ~= "" then
+            stage = 3
+            local ol_query = "title:" .. title .. " author:" .. authors
+            if openlibrary_language then ol_query = ol_query .. " language:" .. openlibrary_language end
+            local gb_query = "intitle:" .. title .. " inauthor:" .. authors
+            runStage(stage, ol_query, gb_query)
+        end
+
+        if #candidates < 6 then
+            stage = 4
+            runStage(stage, "title:" .. title, "intitle:" .. title)
+        end
+
+        sortCandidates()
 
         local found_candidates = {}
         for _, candidate in ipairs(candidates) do
@@ -1063,23 +1161,41 @@ function M.install(BV)
             temp_files = {}
         end
 
+        local function detectImageMime(path)
+            local f = io.open(path, "rb")
+            if not f then return nil, 0 end
+            local head = f:read(32) or ""
+            local size = f:seek("end") or 0
+            f:close()
+            if size <= 0 then return nil, size end
+            if head:sub(1, 3) == "\255\216\255" then return "image/jpeg", size end
+            if head:sub(1, 8) == "\137PNG\r\n\26\n" then return "image/png", size end
+            if head:sub(1, 4) == "GIF8" then return "image/gif", size end
+            if head:sub(1, 4) == "RIFF" and head:sub(9, 12) == "WEBP" then return "image/webp", size end
+            return nil, size
+        end
+
         local function requestToFile(target_url, output, max_bytes)
             if type(target_url) ~= "string" or not target_url:match("^https?://") then return false end
             local f = io.open(output, "wb")
             if not f then return false end
             local total = 0
+            local closed = false
+            local function close()
+                if not closed then f:close(); closed = true end
+            end
             local sink = function(chunk)
                 if not chunk then
-                    f:close()
+                    close()
                     return 1
                 end
                 total = total + #chunk
                 if total > max_bytes then
-                    f:close()
+                    close()
                     return nil, "response too large"
                 end
                 if not f:write(chunk) then
-                    f:close()
+                    close()
                     return nil, "write failed"
                 end
                 return 1
@@ -1090,7 +1206,7 @@ function M.install(BV)
                     url = target_url,
                     method = "GET",
                     headers = {
-                        ["User-Agent"] = "BookVault/3.4 (KOReader)",
+                        ["User-Agent"] = "BookVault/3.4.3 (KOReader)",
                         ["Accept"] = "image/jpeg,image/png,image/webp,image/*;q=0.8,*/*;q=0.5",
                         ["Accept-Encoding"] = "identity",
                     },
@@ -1098,8 +1214,13 @@ function M.install(BV)
                 }
             end)
             socketutil:reset_timeout()
-            pcall(f.close, f)
-            if not ok or success ~= 1 or tonumber(code) ~= 200 or total <= 0 then
+            close()
+            if not ok or success ~= 1 or tonumber(code) ~= 200 or total <= 32 then
+                pcall(os.remove, output)
+                return false
+            end
+            local mime_type, size = detectImageMime(output)
+            if not mime_type or size > max_bytes or size <= 32 then
                 pcall(os.remove, output)
                 return false
             end
@@ -1107,23 +1228,13 @@ function M.install(BV)
         end
 
         local function makePreviewIcon(raw_path, index)
+            local mime_type, size = detectImageMime(raw_path)
+            if not mime_type or size > 180 * 1024 then return nil end
             local f = io.open(raw_path, "rb")
             if not f then return nil end
             local data = f:read("*a")
             f:close()
-            if not data or #data == 0 or #data > 180 * 1024 then return nil end
-
-            local mime_type
-            if data:sub(1, 3) == "\255\216\255" then
-                mime_type = "image/jpeg"
-            elseif data:sub(1, 8) == "\137PNG\r\n\26\n" then
-                mime_type = "image/png"
-            elseif data:sub(1, 4) == "GIF8" then
-                mime_type = "image/gif"
-            elseif data:sub(1, 12):sub(9, 12) == "WEBP" and data:sub(1, 4) == "RIFF" then
-                mime_type = "image/webp"
-            end
-            if not mime_type then return nil end
+            if not data or #data == 0 then return nil end
 
             local encoded = mime.b64(data)
             local icon_name = "bookvault-cover-preview-" .. tostring(os.time()) .. "-" .. tostring(index)
@@ -1202,10 +1313,11 @@ function M.install(BV)
                         return
                     end
 
+                    BookList.resetBookInfoCache(file)
                     if self.invalidateBookMetadataCache then self:invalidateBookMetadataCache(file) end
                     UIManager:broadcastEvent(Event:new("InvalidateMetadataCache", file))
                     UIManager:broadcastEvent(Event:new("BookMetadataChanged", file))
-                    if self._last_menu then refresh(self._last_menu) end
+                    if self._last_menu then refresh(self._last_menu, true) end
                     UIManager:show(InfoMessage:new{ text = _("Capa aplicada.") })
                 end,
             }
@@ -1231,7 +1343,6 @@ function M.install(BV)
         end
         UIManager:show(dialog)
     end
-
     -- Keep the old entry point as a compatibility alias for any existing
     -- menu or saved callback that still refers to its previous name.
     BV.searchGoogleImagesForCover = BV.searchBookCovers
