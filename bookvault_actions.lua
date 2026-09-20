@@ -1102,6 +1102,9 @@ function M.install(BV)
             addOpenLibraryResults(ol_query, stage)
             addGoogleResults(gb_query, stage)
             sortCandidates()
+        end
+
+        local function enoughCandidates()
             return #candidates >= 6 and countStrong() >= 6
         end
 
@@ -1109,7 +1112,7 @@ function M.install(BV)
             runStage(1, "isbn:" .. wanted_isbn, "isbn:" .. wanted_isbn)
         end
 
-        if #candidates < 6 then
+        if not enoughCandidates() then
             local ol_query = "title:" .. title
             local gb_query = "intitle:" .. title
             if authors ~= "" then
@@ -1119,7 +1122,7 @@ function M.install(BV)
             runStage(2, ol_query, gb_query)
         end
 
-        if #candidates < 6 and language then
+        if not enoughCandidates() and language then
             local ol_query = "title:" .. title
             if authors ~= "" then ol_query = ol_query .. " author:" .. authors end
             if openlibrary_language then ol_query = ol_query .. " language:" .. openlibrary_language end
@@ -1128,7 +1131,7 @@ function M.install(BV)
             runStage(3, ol_query, gb_query)
         end
 
-        if #candidates < 6 then
+        if not enoughCandidates() then
             runStage(4, "title:" .. title, "intitle:" .. title)
         end
 
