@@ -1449,7 +1449,14 @@ function M.install(BV)
     -- chooser when BookVault is initialized there. No global class override.
     local oldInit = BV.init
     BV.init = function(self, ...)
-        local result = oldInit(self, ...)
+        -- Keep the plugin constructor resilient: the menu registration done by
+        -- oldInit is the critical path, while the protection hook is optional
+        -- and must never make PluginLoader discard the whole BookVault module.
+        local ok_init, result = pcall(oldInit, self, ...)
+        if not ok_init then
+            logger.err("BookVault: init failed", result)
+            return nil
+        end
         local ui = self.ui
         local fc = ui and ui.file_chooser
         if fc and not fc._bookvault_guard then
