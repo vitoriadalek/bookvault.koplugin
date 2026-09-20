@@ -1077,9 +1077,22 @@ function BookVault:init()
     -- Register the plugin before loading any persisted state. A malformed or
     -- outdated settings file must never make BookVault disappear from Tools.
     -- This follows KOReader's native WidgetContainer plugin registration path.
-    if self.ui and self.ui.menu then
-        self.ui.menu:registerToMainMenu(self)
+    local function registerMainMenu()
+        if not self.ui or not self.ui.menu then return false end
+        local ok = pcall(self.ui.menu.registerToMainMenu, self.ui.menu, self)
+        return ok
     end
+
+    if not registerMainMenu() and UIManager and type(UIManager.scheduleIn) == "function" then
+        local attempts = 0
+        local function retryRegister()
+            attempts = attempts + 1
+            if registerMainMenu() or attempts >= 3 then return end
+            pcall(UIManager.scheduleIn, UIManager, 1, retryRegister)
+        end
+        pcall(UIManager.scheduleIn, UIManager, 0, retryRegister)
+    end
+
     self:loadSettings()
 end
 
