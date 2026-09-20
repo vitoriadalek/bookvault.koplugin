@@ -478,8 +478,8 @@ function BookVault:getBookMetadata(item)
     end
     local custom_file = nil
     local cover_file = nil
-    pcall(function() custom_file = DocSettings.findCustomMetadataFile(path) end)
-    pcall(function() cover_file = DocSettings.findCustomCoverFile(path) end)
+    pcall(function() custom_file = DocSettings:findCustomMetadataFile(path) end)
+    pcall(function() cover_file = DocSettings:findCustomCoverFile(path) end)
     local custom_attr = custom_file and lfs.attributes(custom_file)
     local cover_attr = cover_file and lfs.attributes(cover_file)
     local fingerprint = table.concat({
