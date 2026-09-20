@@ -15,7 +15,6 @@ local ReaderUI = require("apps/reader/readerui")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local BookList = require("ui/widget/booklist")
-local DocSettings = require("docsettings")
 local DocumentRegistry = require("document/documentregistry")
 local ffiUtil = require("ffi/util")
 local lfs = require("libs/libkoreader-lfs")
@@ -478,8 +477,13 @@ function BookVault:getBookMetadata(item)
     end
     local custom_file = nil
     local cover_file = nil
-    pcall(function() custom_file = DocSettings:findCustomMetadataFile(path) end)
-    pcall(function() cover_file = DocSettings:findCustomCoverFile(path) end)
+    -- Keep DocSettings lazy: it is only needed for cache fingerprinting and
+    -- must never be allowed to prevent PluginLoader from loading BookVault.
+    local ok_docsettings, DocSettings = pcall(require, "docsettings")
+    if ok_docsettings and DocSettings then
+        pcall(function() custom_file = DocSettings:findCustomMetadataFile(path) end)
+        pcall(function() cover_file = DocSettings:findCustomCoverFile(path) end)
+    end
     local custom_attr = custom_file and lfs.attributes(custom_file)
     local cover_attr = cover_file and lfs.attributes(cover_file)
     local fingerprint = table.concat({
@@ -1079,41 +1083,12 @@ function BookVault:onResume()
     self:invalidateBookMetadataCache()
 end
 function BookVault:init()
-    -- Register the plugin before loading any persisted state. A malformed or
-    -- outdated settings file must never make BookVault disappear from Tools.
-    -- This follows KOReader's native WidgetContainer plugin registration path.
-    local function registerMainMenu()
-        if not self.ui or not self.ui.menu then return false end
-        local menu = self.ui.menu
-
-        -- Normal KOReader registration path.
-        local ok = pcall(menu.registerToMainMenu, menu, self)
-
-        -- Also repair the menu immediately when it has already been
-        -- initialized. This handles the startup ordering used by some
-        -- KOReader/SimpleUI builds where the menu table is created before
-        -- external plugins finish registering. The normal registration path
-        -- remains in place, so this is not a replacement or global patch.
-        if type(menu.menu_items) == "table" then
-            local add_ok = pcall(self.addToMainMenu, self, menu.menu_items)
-            if add_ok then
-                menu.tab_item_table = nil
-                ok = true
-            end
-        end
-        return ok
+    -- Use KOReader's native registration path. MenuSorter builds the Tools
+    -- hierarchy later, so mutating menu_items during plugin initialization is
+    -- unsafe and can make a valid plugin disappear from the menu.
+    if self.ui and self.ui.menu and self.ui.menu.registerToMainMenu then
+        self.ui.menu:registerToMainMenu(self)
     end
-
-    if not registerMainMenu() and UIManager and type(UIManager.scheduleIn) == "function" then
-        local attempts = 0
-        local function retryRegister()
-            attempts = attempts + 1
-            if registerMainMenu() or attempts >= 5 then return end
-            pcall(UIManager.scheduleIn, UIManager, 1, retryRegister)
-        end
-        pcall(UIManager.scheduleIn, UIManager, 0, retryRegister)
-    end
-
     self:loadSettings()
 end
 
