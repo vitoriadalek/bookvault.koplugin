@@ -125,7 +125,7 @@ end
 local function hasCover(owner, file)
     local props = getProps(owner, file)
     if props.has_cover ~= nil then return props.has_cover end
-    local ok, custom = pcall(DocSettings.findCustomCoverFile, file)
+    local ok, custom = pcall(DocSettings.findCustomCoverFile, DocSettings, file)
     if ok and custom then return true end
     return false
 end
