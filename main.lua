@@ -1079,7 +1079,23 @@ function BookVault:init()
     -- This follows KOReader's native WidgetContainer plugin registration path.
     local function registerMainMenu()
         if not self.ui or not self.ui.menu then return false end
-        local ok = pcall(self.ui.menu.registerToMainMenu, self.ui.menu, self)
+        local menu = self.ui.menu
+
+        -- Normal KOReader registration path.
+        local ok = pcall(menu.registerToMainMenu, menu, self)
+
+        -- Also repair the menu immediately when it has already been
+        -- initialized. This handles the startup ordering used by some
+        -- KOReader/SimpleUI builds where the menu table is created before
+        -- external plugins finish registering. The normal registration path
+        -- remains in place, so this is not a replacement or global patch.
+        if type(menu.menu_items) == "table" then
+            local add_ok = pcall(self.addToMainMenu, self, menu.menu_items)
+            if add_ok then
+                menu.tab_item_table = nil
+                ok = true
+            end
+        end
         return ok
     end
 
@@ -1087,7 +1103,7 @@ function BookVault:init()
         local attempts = 0
         local function retryRegister()
             attempts = attempts + 1
-            if registerMainMenu() or attempts >= 3 then return end
+            if registerMainMenu() or attempts >= 5 then return end
             pcall(UIManager.scheduleIn, UIManager, 1, retryRegister)
         end
         pcall(UIManager.scheduleIn, UIManager, 0, retryRegister)
