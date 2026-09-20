@@ -1048,7 +1048,7 @@ function BookVault:addToMainMenu(menu_items)
     -- KOReader's standard plugin destination is Tools > More tools.
     -- Registration itself is deferred to FileManagerMenu/ReaderMenu's native
     -- setUpdateItemTable() flow; do not inject into menu_items from init().
-    menu_items.bookvault={text=_("BookVault"),sorting_hint="more_tools",sub_item_table={
+    menu_items.bookvault={text=_("BookVault"),sorting_hint="tools",sub_item_table={
         {text=_("Abrir biblioteca"),callback=function() self:showStatusChooser() end},
         {text_func=function() return self.unlocked and "◉ ".._("Ocultar conteúdo") or "◉ ".._("Revelar conteúdo") end,callback=function() self:togglePrivate() end},
         {text=_("Biblioteca"),separator=true,sub_item_table={
