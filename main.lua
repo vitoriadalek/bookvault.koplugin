@@ -258,11 +258,7 @@ function BookVault:updateMenuPath(menu, old_path, new_path, is_copy)
         if not list or not key then return false end
         for i, item in ipairs(list) do
             if item and normalize(item.path) == key then
-                if replacement then
-                    list[i] = replacement
-                else
-                    table.remove(list, i)
-                end
+                if replacement then list[i] = replacement else table.remove(list, i) end
                 return true
             end
         end
@@ -275,7 +271,7 @@ function BookVault:updateMenuPath(menu, old_path, new_path, is_copy)
 
     if old_key and not is_copy then
         replace_path(source, old_key, visible and new_item or nil)
-        replace_path(filtered, old_key, visible and new_item or nil)
+        if filtered then replace_path(filtered, old_key, visible and new_item or nil) end
         replace_path(table_items, old_key, visible and new_item or nil)
     end
 
@@ -283,6 +279,21 @@ function BookVault:updateMenuPath(menu, old_path, new_path, is_copy)
         source[#source + 1] = new_item
         table_items[#table_items + 1] = new_item
     end
+end
+
+function BookVault:removeMenuPath(menu, path)
+    if not menu or not path then return end
+    local key = normalize(path)
+    if not key then return end
+    local function remove_from(list)
+        if not list then return end
+        for i = #list, 1, -1 do
+            if list[i] and normalize(list[i].path) == key then table.remove(list, i) end
+        end
+    end
+    remove_from(menu._bookvault_source_items)
+    remove_from(menu._bookvault_filtered_items)
+    remove_from(menu.item_table)
 end
 
 function BookVault:scanBooks(include_private)
