@@ -225,6 +225,22 @@ function BookVault:invalidateBookMetadataCache(file)
     end
 end
 
+function BookVault:onInvalidateMetadataCache(file)
+    if file then
+        self:invalidateBookMetadataCache(file)
+    else
+        self:invalidateBookMetadataCache()
+    end
+end
+
+function BookVault:onBookMetadataChanged(file)
+    if file then
+        self:invalidateBookMetadataCache(file)
+    else
+        self:invalidateBookMetadataCache()
+    end
+end
+
 function BookVault:makeBookItem(path)
     local normalized = normalize(path)
     if not normalized then return nil end
