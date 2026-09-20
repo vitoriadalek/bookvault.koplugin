@@ -1045,7 +1045,7 @@ function BookVault:addToMainMenu(menu_items)
     -- guaranteed "Tools" section on builds/custom menu orders that do not
     -- expose "More tools". This prevents MenuSorter from losing the plugin
     -- because a sorting target is absent.
-    local tools_hint = menu_items.more_tools and "more_tools" or "tools"
+    local tools_hint = menu_items.more_tools and "more_tools" or (menu_items.tools and "tools" or nil)
     menu_items.bookvault={text=_("BookVault"),sorting_hint=tools_hint,sub_item_table={
         {text=_("Abrir biblioteca"),callback=function() self:showStatusChooser() end},
         {text_func=function() return self.unlocked and "◉ ".._("Ocultar conteúdo") or "◉ ".._("Revelar conteúdo") end,callback=function() self:togglePrivate() end},
