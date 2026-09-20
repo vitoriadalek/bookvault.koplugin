@@ -1081,32 +1081,14 @@ function BookVault:onResume()
     self:invalidateBookMetadataCache()
 end
 function BookVault:init()
-    -- KOReader loads plugins before building the FileManager menu. Register
-    -- through the native FileManagerMenu registry and keep initialization
-    -- non-fatal: a failure in optional settings/UI code must never prevent the
-    -- plugin instance from being registered in Tools.
-    local ok_settings, settings_err = pcall(self.loadSettings, self)
-    if not ok_settings then
-        logger.err("BookVault: initialization settings failed", settings_err)
-    end
-
-    local menu = self.ui and self.ui.menu
-    if menu and type(menu.registerToMainMenu) == "function" then
-        local ok_register, register_err = pcall(menu.registerToMainMenu, menu, self)
-        if not ok_register then
-            logger.err("BookVault: native menu registration failed", register_err)
-        end
-    else
-        logger.warn("BookVault: FileManagerMenu unavailable during init; menu registration will be retried")
-        if UIManager and type(UIManager.scheduleIn) == "function" then
-            pcall(UIManager.scheduleIn, UIManager, 0, function()
-                local retry_menu = self.ui and self.ui.menu
-                if retry_menu and type(retry_menu.registerToMainMenu) == "function" then
-                    pcall(retry_menu.registerToMainMenu, retry_menu, self)
-                end
-            end)
-        end
-    end
+    -- Use the exact native WidgetContainer/FileManagerMenu registration path
+    -- used by KOReader's working plugin baseline. Do not defer or wrap this
+    -- registration: FileManager creates the menu before plugin instances are
+    -- initialized, so self.ui.menu is the authoritative registry here.
+    safe(function()
+        self:loadSettings()
+        self.ui.menu:registerToMainMenu(self)
+    end)
 end
 
 -- Install BookVault actions explicitly on the BookVault class.
