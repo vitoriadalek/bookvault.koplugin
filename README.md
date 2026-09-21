@@ -1,4 +1,4 @@
-# BookVault 3.4.2
+# BookVault 3.4.16
 
 Biblioteca visual para KOReader, projetada para telas e-ink: monocromática, leve, minimalista e integrada às APIs nativas do KOReader.
 
@@ -15,6 +15,7 @@ Biblioteca visual para KOReader, projetada para telas e-ink: monocromática, lev
 - Ordem personalizada persistente por status e coleção.
 - Categorias: Todos, Lendo, Em espera, Concluídos e Não iniciados.
 - Integração com a Quick Action nativa do Simple UI; a ação registrada mantém a instância do BookVault disponível mesmo quando a tela inicial não tem um FileManager ativo.
+- Entrada principal do BookVault diretamente na aba **Tools/Ferramentas** do File Manager, preservando More Tools como fallback de compatibilidade.
 - Quando integrado à barra inferior do SimpleUI por uma ação personalizada do BookVault, o plugin marca essa ação como módulo ativo enquanto a biblioteca está aberta.
 
 ## Ações por livro
