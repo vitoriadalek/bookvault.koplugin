@@ -1048,7 +1048,7 @@ function BookVault:addToMainMenu(menu_items)
     -- Use KOReader's native orphan placement. "more_tools" is the stable
     -- nested submenu ID in MenuSorter. The top-level "tools" ID is removed
     -- during MenuSorter cleanup and is not a safe sorting_hint target.
-    menu_items.bookvault={text=_("BookVault"),sorting_hint="more_tools",sub_item_table={
+    menu_items.bookvault={text=_("BookVault"),sub_item_table={
         {text=_("Abrir biblioteca"),callback=function() self:showStatusChooser() end},
         {text_func=function() return self.unlocked and "◉ ".._("Ocultar conteúdo") or "◉ ".._("Revelar conteúdo") end,callback=function() self:togglePrivate() end},
         {text=_("Biblioteca"),separator=true,sub_item_table={
@@ -1088,29 +1088,33 @@ function BookVault:init()
             error("FileManagerMenu registry unavailable")
         end
 
-        -- BookVault must be a direct item of the native Ferramentas/Tools tab.
-        -- MenuSorter builds that hierarchy from filemanager_menu_order.lua and
-        -- also merges the user's custom order before sorting.  Temporarily
-        -- extending MenuSorter.sort is the only reliable way to insert our
-        -- item into the actual "tools" order without editing KOReader files or
-        -- the user's settings file.  The override exists only for this single
-        -- synchronous menu rebuild and is restored immediately afterwards.
         if not menu._bookvault_tools_placement then
             local original_set_update = menu.setUpdateItemTable
             if type(original_set_update) ~= "function" then
                 error("FileManagerMenu setUpdateItemTable unavailable")
             end
 
+            -- KOReader's MenuSorter only places an item inside a submenu when
+            -- BOTH the parent order and the child order entry exist.  Previous
+            -- versions added BookVault to tools but omitted order.bookvault,
+            -- so MenuSorter treated it as an orphan and it could end up in
+            -- More Tools or disappear depending on the user's menu order.
+            --
+            -- Add a transient child-order entry while this FileManager menu
+            -- instance is being built.  This is the same mechanism KOReader
+            -- itself uses for every native nested menu and does not modify
+            -- KOReader files or persist anything in user settings.
             menu.setUpdateItemTable = function(m, ...)
                 local MenuSorter = require("ui/menusorter")
                 local original_sort = MenuSorter.sort
-                local restored = false
+                local saved_tools
+                local saved_bookvault
+                local patched = false
 
                 local function restore()
-                    if not restored then
-                        MenuSorter.sort = original_sort
-                        restored = true
-                    end
+                    if not patched then return end
+                    MenuSorter.sort = original_sort
+                    patched = false
                 end
 
                 MenuSorter.sort = function(sorter, item_table, order)
@@ -1118,98 +1122,63 @@ function BookVault:init()
                         and item_table.bookvault ~= nil
                         and type(order) == "table"
                         and type(order.tools) == "table" then
-                        local present = false
+                        saved_tools = {}
+                        for i, value in ipairs(order.tools) do
+                            saved_tools[i] = value
+                        end
+                        saved_bookvault = order.bookvault
+                        order.bookvault = {}
+
+                        local has_bookvault = false
                         for _, id in ipairs(order.tools) do
                             if id == "bookvault" then
-                                present = true
+                                has_bookvault = true
                                 break
                             end
                         end
-                        if not present then
-                            -- Keep BookVault at the end of the native Tools list,
-                            -- after the existing tools and More tools entry.
+                        if not has_bookvault then
                             order.tools[#order.tools + 1] = "bookvault"
                         end
+                        patched = true
                     end
-                    return original_sort(sorter, item_table, order)
+
+                    local ok, result = xpcall(function()
+                        return original_sort(sorter, item_table, order)
+                    end, debug.traceback)
+
+                    -- Restore the shared/cached order table immediately. The
+                    -- generated tab_item_table already contains BookVault.
+                    if patched then
+                        for i = #order.tools, 1, -1 do
+                            order.tools[i] = nil
+                        end
+                        for i, value in ipairs(saved_tools or {}) do
+                            order.tools[i] = value
+                        end
+                        order.bookvault = saved_bookvault
+                    end
+                    restore()
+
+                    if not ok then error(result) end
+                    return result
                 end
 
                 local ok, result = xpcall(function()
                     return original_set_update(m, ...)
                 end, debug.traceback)
-                restore()
-                if not ok then error(result) end
-
-                -- Defensive fallback for KOReader variants whose MenuSorter
-                -- does not expose the expected Tools order. This only moves
-                -- BookVault after sorting; it never rebuilds the menu.
-                local function removeBookVault(list)
-                    if type(list) ~= "table" then return nil end
-                    for i = #list, 1, -1 do
-                        local item = list[i]
-                        if type(item) == "table" then
-                            if item.id == "bookvault" then
-                                table.remove(list, i)
-                                return item
-                            end
-                            local found = removeBookVault(item.sub_item_table)
-                            if found then return found end
-                        end
-                    end
-                    return nil
+                if not ok then
+                    restore()
+                    error(result)
                 end
-
-                local function findTools(list)
-                    if type(list) ~= "table" then return nil end
-                    local anchors = {
-                        read_timer=true, calibre=true, exporter=true,
-                        statistics=true, cloudstorage=true, move_to_archive=true,
-                        wallabag=true, news_downloader=true, text_editor=true,
-                        profiles=true, qrclipboard=true, more_tools=true,
-                    }
-                    local has_anchor = false
-                    for _, item in ipairs(list) do
-                        if type(item) == "table" and anchors[item.id] then
-                            has_anchor = true
-                            break
-                        end
-                    end
-                    if has_anchor then return list end
-                    for _, item in ipairs(list) do
-                        if type(item) == "table" then
-                            local found = findTools(item.sub_item_table)
-                            if found then return found end
-                        end
-                    end
-                    return nil
-                end
-
-                local bookvault_item = removeBookVault(m.tab_item_table)
-                if bookvault_item then
-                    bookvault_item.sorting_hint = nil
-                    local tools = findTools(m.tab_item_table)
-                    if tools then
-                        tools[#tools + 1] = bookvault_item
-                    else
-                        -- If this KOReader build has a different menu layout,
-                        -- put it in the first tab rather than silently losing it.
-                        local first = m.tab_item_table and m.tab_item_table[1]
-                        if type(first) == "table" then
-                            first[#first + 1] = bookvault_item
-                            logger.warn("BookVault: native Tools submenu not found; using first menu tab fallback")
-                        else
-                            error("BookVault: could not place menu item after sorting")
-                        end
-                    end
-                end
+                return result
             end
+
             menu._bookvault_tools_placement = true
         end
 
         menu:registerToMainMenu(self)
     end)
-end
--- Install BookVault actions explicitly on the BookVault class.
+end-- Install BookVault actions explicitly on the BookVault class.
 -- This is intentionally done after the class is fully defined and never by
 -- replacing WidgetContainer.extend/BookList.new globally.
 local ok_actions, actions = pcall(require, "bookvault_actions")
