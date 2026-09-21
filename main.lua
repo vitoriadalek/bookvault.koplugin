@@ -1105,6 +1105,7 @@ function BookVault:init()
             -- itself uses for every native nested menu and does not modify
             -- KOReader files or persist anything in user settings.
             menu.setUpdateItemTable = function(m, ...)
+                local update_args = {...}
                 local MenuSorter = require("ui/menusorter")
                 local original_sort = MenuSorter.sort
                 local saved_tools
@@ -1164,7 +1165,7 @@ function BookVault:init()
                 end
 
                 local ok, result = xpcall(function()
-                    return original_set_update(m, ...)
+                    return original_set_update(m, unpack(update_args))
                 end, debug.traceback)
                 if not ok then
                     restore()
