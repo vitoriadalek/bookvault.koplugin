@@ -1190,7 +1190,9 @@ function BookVault:init()
 
         menu:registerToMainMenu(self)
     end)
-endd-- Install BookVault actions explicitly on the BookVault class.
+end
+
+-- Install BookVault actions explicitly on the BookVault class.
 -- This is intentionally done after the class is fully defined and never by
 -- replacing WidgetContainer.extend/BookList.new globally.
 local ok_actions, actions = pcall(require, "bookvault_actions")
