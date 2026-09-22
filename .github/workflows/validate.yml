@@ -25,4 +25,4 @@ jobs:
           grep -q 'bookvault_core' main.lua
           grep -q 'registerToMainMenu' bookvault_core.lua
           grep -q 'name = "bookvault"' _meta.lua
-          grep -q 'version = "3.4.18"' _meta.lua
+          grep -q 'version = "3.4.19"' _meta.lua
