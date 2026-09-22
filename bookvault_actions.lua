@@ -1057,7 +1057,7 @@ function M.install(BV)
             for _, doc in ipairs(data.docs) do
                 if type(doc) == "table" and doc.cover_i then
                     local cover_id = tostring(doc.cover_i)
-                    addCandidate{
+                    addCandidate({
                         source = "openlibrary",
                         title = doc.title,
                         authors = type(doc.author_name) == "table" and table.concat(doc.author_name, " ") or doc.author_name,
@@ -1089,7 +1089,7 @@ function M.install(BV)
                             if type(identifier) == "table" and identifier.identifier then identifiers[#identifiers + 1] = identifier.identifier end
                         end
                         local quality = images.extraLarge and 5 or (images.large and 4 or (images.medium and 3 or 2))
-                        addCandidate{
+                        addCandidate({
                             source = "googlebooks",
                             title = info.title,
                             authors = type(info.authors) == "table" and table.concat(info.authors, " ") or info.authors,
