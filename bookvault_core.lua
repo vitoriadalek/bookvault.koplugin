@@ -1189,6 +1189,35 @@ function BookVault:init()
         end
 
         menu:registerToMainMenu(self)
+
+        -- Simple UI's Quick Action must capture this live BookVault instance,
+        -- not the BookVault class table. The action registry is in-memory and
+        -- can be registered/replaced safely once the plugin instance exists.
+        local function registerSimpleUIWithRetry(instance)
+            local ok, registered = pcall(instance.registerSimpleUIAction, instance)
+            if ok and registered then return end
+            if instance._bookvault_sui_retry then return end
+            instance._bookvault_sui_retry = true
+            local attempts = 0
+            local function retry()
+                instance._bookvault_sui_retry = false
+                attempts = attempts + 1
+                local retry_ok, done = pcall(instance.registerSimpleUIAction, instance)
+                if (retry_ok and done) or attempts >= 5 then return end
+                instance._bookvault_sui_retry = true
+                if not UIManager or type(UIManager.scheduleIn) ~= "function"
+                    or not pcall(UIManager.scheduleIn, UIManager, 2, retry) then
+                    instance._bookvault_sui_retry = false
+                end
+            end
+            if not UIManager or type(UIManager.scheduleIn) ~= "function"
+                or not pcall(UIManager.scheduleIn, UIManager, 0, retry) then
+                instance._bookvault_sui_retry = false
+            end
+        end
+        if type(self.registerSimpleUIAction) == "function" then
+            registerSimpleUIWithRetry(self)
+        end
     end)
 end
 
