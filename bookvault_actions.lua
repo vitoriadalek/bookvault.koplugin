@@ -36,9 +36,11 @@ end
 local function safe(fn)
     local ok, err = xpcall(fn, debug.traceback)
     if not ok then
-        logger.err("BookVault:", err)
+        local detail = tostring(err or _("erro desconhecido"))
+        logger.err("BookVault:", detail)
         UIManager:show(InfoMessage:new{
-            text = _("BookVault encontrou um erro e não conseguiu concluir a ação."),
+            text = _("BookVault encontrou um erro e não conseguiu concluir a ação.")
+                .. "\n\n" .. detail,
         })
     end
     return ok
