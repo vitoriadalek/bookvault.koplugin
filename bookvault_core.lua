@@ -774,7 +774,7 @@ function BookVault:showBookVaultSettings(menu)
                         self:showCollectionVisibilityChooser()
                     end}},
                 })
-            }},
+            end}},
             {{text=_("Aparência"), callback=function()
                 close()
                 self:showAppearanceSettings(menu)
