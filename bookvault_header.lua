@@ -262,19 +262,13 @@ function Header:rebuildTop()
             self._top_selection_right,
         }
 
-        self._top_normal:show()
-        self._top_selection:hide()
+        -- OverlapGroup is a pure container and has no show()/hide() API.
+        -- Only the active child is placed in the top widget, so switching the
+        -- child is sufficient and avoids calling nonexistent container methods.
         top[1] = self.selection_mode and self._top_selection or self._top_normal
         self.top_widget = top
     else
         local active = self.selection_mode and self._top_selection or self._top_normal
-        if self.selection_mode then
-            self._top_normal:hide()
-            self._top_selection:show()
-        else
-            self._top_selection:hide()
-            self._top_normal:show()
-        end
         self.top_widget[1] = active
     end
     if self[1] then self[1][1]=self.top_widget end
