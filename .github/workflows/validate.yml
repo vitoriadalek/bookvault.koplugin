@@ -11,12 +11,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Lua 5.1
         run: sudo apt-get update && sudo apt-get install -y lua5.1
-      - name: Validate Lua syntax
-        run: |
-          set -eu
-          for file in *.lua; do
-            luac5.1 -p "$file"
-          done
+      - name: Validate bookvault_actions.lua
+        run: luac5.1 -p bookvault_actions.lua
+      - name: Validate bookvault_core.lua
+        run: luac5.1 -p bookvault_core.lua
+      - name: Validate main.lua
+        run: luac5.1 -p main.lua
       - name: Validate plugin registration
         run: |
           set -eu
