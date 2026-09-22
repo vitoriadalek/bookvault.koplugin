@@ -1066,7 +1066,7 @@ function M.install(BV)
                         preview = "https://covers.openlibrary.org/b/id/" .. cover_id .. "-M.jpg?default=false",
                         original = "https://covers.openlibrary.org/b/id/" .. cover_id .. "-L.jpg?default=false",
                         quality = 3,
-                    }, stage
+                    }, stage)
                 end
             end
         end
@@ -1099,7 +1099,7 @@ function M.install(BV)
                             original = original,
                             quality = quality,
                             key = "gb:" .. tostring(item.id or preview),
-                        }, stage
+                        }, stage)
                     end
                 end
             end
