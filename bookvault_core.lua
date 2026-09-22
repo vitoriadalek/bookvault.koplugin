@@ -786,14 +786,14 @@ function BookVault:showBookVaultSettings(menu)
                     {{text=_("Proteger uma pasta"), callback=function() self:chooseManagedPath(false) end}},
                     {{text=_("Gerenciar pastas protegidas"), callback=function() self:listManagedPaths(false) end}},
                 })
-            }},
+            end}},
             {{text=_("Privacidade"), callback=function()
                 close()
                 showSubmenu(_("Privacidade"), {
                     {{text=_("Tornar uma pasta privada"), callback=function() self:chooseManagedPath(true) end}},
                     {{text=_("Gerenciar conteúdo privado"), callback=function() self:listManagedPaths(true) end}},
                 })
-            }},
+            end}},
             {{text=_("Cancelar"), callback=close}},
         },
     }
