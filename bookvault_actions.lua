@@ -195,7 +195,10 @@ function M.install(BV)
         end
     end
 
-    registerSimpleUIWithRetry()
+    -- The Simple UI action is registered from BookVault:init(), after KOReader
+    -- has created the real plugin instance. Registering it here would capture
+    -- the BookVault class table instead of the live instance, which makes the
+    -- bottom-bar action fail when it tries to open the library.
 
     -- Privacy is deliberately independent from folder protection.
     local oldLoad = BV.loadSettings
